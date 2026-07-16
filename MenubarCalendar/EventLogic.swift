@@ -24,10 +24,12 @@ enum EventLogic {
     // MARK: - Titles
 
     /// Title for the menu bar: trimmed, empty → placeholder, truncated to
-    /// `maxLength` characters (the "…" separator is appended by the caller).
+    /// `maxLength` characters. When it overflows, an ellipsis is appended so the
+    /// cut is visible (`Bardzo długie spotkani…`); otherwise the title is returned
+    /// verbatim.
     static func truncatedTitle(_ title: String, maxLength: Int = titleMaxLength) -> String {
         let name = listTitle(title)
-        return name.count > maxLength ? String(name.prefix(maxLength)) : name
+        return name.count > maxLength ? String(name.prefix(maxLength)) + "…" : name
     }
 
     /// Title for the pop-over list: trimmed, empty → placeholder, not truncated
@@ -239,8 +241,9 @@ enum EventLogic {
         }
     }
 
-    /// The full menu-bar label: `Standup… 15m left` while a meeting is running,
-    /// `Standup… in 27m` before it starts, or `Urlop… (dziś)` for all-day.
+    /// The full menu-bar label: `Standup · 15m left` while a meeting is running,
+    /// `Standup · in 27m` before it starts, or `Urlop · (dziś)` for all-day. The
+    /// title carries a trailing `…` only when it was truncated.
     /// Falls back to `Brak wydarzeń` when there is nothing to show.
     static func menuBarTitle(
         _ events: [CalendarEvent], now: Date, showAllDay: Bool, calendar: Calendar
@@ -250,11 +253,11 @@ enum EventLogic {
         }
         let title = truncatedTitle(event.title)
         if isInProgress(event, now: now) {
-            return "\(title)… \(remainingString(from: now, to: event.endDate))"
+            return "\(title) · \(remainingString(from: now, to: event.endDate))"
         }
         if event.isAllDay {
-            return "\(title)… (\(menuBarDayLabel(for: event.startDate, now: now, calendar: calendar)))"
+            return "\(title) · (\(menuBarDayLabel(for: event.startDate, now: now, calendar: calendar)))"
         }
-        return "\(title)… \(countdownString(from: now, to: event.startDate))"
+        return "\(title) · \(countdownString(from: now, to: event.startDate))"
     }
 }

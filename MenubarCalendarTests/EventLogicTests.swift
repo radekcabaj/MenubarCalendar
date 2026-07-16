@@ -64,7 +64,8 @@ final class EventLogicTests: XCTestCase {
 
     func testTruncatedTitle() {
         XCTAssertEqual(EventLogic.truncatedTitle("Standup"), "Standup")
-        XCTAssertEqual(EventLogic.truncatedTitle(String(repeating: "x", count: 25)), String(repeating: "x", count: 20))
+        XCTAssertEqual(EventLogic.truncatedTitle(String(repeating: "x", count: 20)), String(repeating: "x", count: 20))
+        XCTAssertEqual(EventLogic.truncatedTitle(String(repeating: "x", count: 25)), String(repeating: "x", count: 20) + "…")
         XCTAssertEqual(EventLogic.truncatedTitle("   "), "(No title)")
     }
 
@@ -94,13 +95,13 @@ final class EventLogicTests: XCTestCase {
         let timed = event("Standup", start: date(2026, 7, 14, 10, 27))
         let allDay = event("Urlop", start: date(2026, 7, 14, 0, 0), end: date(2026, 7, 14, 23, 59), allDay: true)
         let title = EventLogic.menuBarTitle([allDay, timed], now: now, showAllDay: true, calendar: calendar)
-        XCTAssertEqual(title, "Standup… in 27m")
+        XCTAssertEqual(title, "Standup · in 27m")
     }
 
     func testMenuBarTodayAllDayWhenNoTimedToday() {
         let allDay = event("Urlop", start: date(2026, 7, 14, 0, 0), end: date(2026, 7, 14, 23, 59), allDay: true)
         let title = EventLogic.menuBarTitle([allDay], now: now, showAllDay: true, calendar: calendar)
-        XCTAssertEqual(title, "Urlop… (today)")
+        XCTAssertEqual(title, "Urlop · (today)")
     }
 
     func testMenuBarNearestDayWins_TodayAllDayOverTomorrowTimed() {
@@ -108,13 +109,13 @@ final class EventLogicTests: XCTestCase {
         let todayAllDay = event("Urlop", start: date(2026, 7, 14, 0, 0), end: date(2026, 7, 14, 23, 59), allDay: true)
         let tomorrowTimed = event("Spotkanie", start: date(2026, 7, 15, 9, 0))
         let title = EventLogic.menuBarTitle([tomorrowTimed, todayAllDay], now: now, showAllDay: true, calendar: calendar)
-        XCTAssertEqual(title, "Urlop… (today)")
+        XCTAssertEqual(title, "Urlop · (today)")
     }
 
     func testMenuBarFutureAllDayUsesWeekday() {
         let fridayAllDay = event("Konferencja", start: date(2026, 7, 17, 0, 0), end: date(2026, 7, 17, 23, 59), allDay: true)
         let title = EventLogic.menuBarTitle([fridayAllDay], now: now, showAllDay: true, calendar: calendar)
-        XCTAssertEqual(title, "Konferencja… (Fri)")
+        XCTAssertEqual(title, "Konferencja · (Fri)")
     }
 
     func testMenuBarNoEvents() {
@@ -128,7 +129,7 @@ final class EventLogicTests: XCTestCase {
         let ongoing = event("Standup", start: now.addingTimeInterval(-10 * 60), end: now.addingTimeInterval(15 * 60))
         XCTAssertEqual(
             EventLogic.menuBarTitle([ongoing], now: now, showAllDay: true, calendar: calendar),
-            "Standup… 15m left"
+            "Standup · 15m left"
         )
     }
 
@@ -136,7 +137,7 @@ final class EventLogicTests: XCTestCase {
         let ongoing = event("Warsztat", start: now.addingTimeInterval(-5 * 60), end: now.addingTimeInterval(75 * 60))
         XCTAssertEqual(
             EventLogic.menuBarTitle([ongoing], now: now, showAllDay: true, calendar: calendar),
-            "Warsztat… 1h 15m left"
+            "Warsztat · 1h 15m left"
         )
     }
 
@@ -146,7 +147,7 @@ final class EventLogicTests: XCTestCase {
         let soon = event("Potem", start: now.addingTimeInterval(5 * 60))
         XCTAssertEqual(
             EventLogic.menuBarTitle([soon, ongoing], now: now, showAllDay: true, calendar: calendar),
-            "Teraz… 10m left"
+            "Teraz · 10m left"
         )
     }
 
@@ -155,7 +156,7 @@ final class EventLogicTests: XCTestCase {
         let endsSooner = event("Krótkie", start: now.addingTimeInterval(-10 * 60), end: now.addingTimeInterval(12 * 60), id: "b")
         XCTAssertEqual(
             EventLogic.menuBarTitle([endsLater, endsSooner], now: now, showAllDay: true, calendar: calendar),
-            "Krótkie… 12m left"
+            "Krótkie · 12m left"
         )
     }
 
@@ -165,7 +166,7 @@ final class EventLogicTests: XCTestCase {
         let next = event("Będzie", start: now.addingTimeInterval(40 * 60), id: "b")
         XCTAssertEqual(
             EventLogic.menuBarTitle([ended, next], now: now, showAllDay: true, calendar: calendar),
-            "Będzie… in 40m"
+            "Będzie · in 40m"
         )
     }
 
@@ -175,7 +176,7 @@ final class EventLogicTests: XCTestCase {
         let next = event("Następne", start: now.addingTimeInterval(25 * 60), id: "b")
         XCTAssertEqual(
             EventLogic.menuBarTitle([almostDone, next], now: now, showAllDay: true, calendar: calendar),
-            "Następne… in 25m"
+            "Następne · in 25m"
         )
     }
 
