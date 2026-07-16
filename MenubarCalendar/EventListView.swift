@@ -1,10 +1,15 @@
 import SwiftUI
 
 /// Root of the `.window`-style menu-bar pop-over (PRD §3.2). Shows either the
-/// upcoming-events list or the settings screen.
+/// day-grouped upcoming-events list or the settings screen.
 struct EventListView: View {
     @EnvironmentObject private var viewModel: CalendarViewModel
     @State private var showingSettings = false
+    @State private var listHeight: CGFloat = 0
+
+    /// The list scrolls once it would grow past this; below it, the pop-over
+    /// shrinks to fit its content.
+    private let maxListHeight: CGFloat = 440
 
     var body: some View {
         Group {
@@ -18,22 +23,11 @@ struct EventListView: View {
     }
 
     private var mainContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
+        VStack(spacing: 0) {
             content
             Divider()
             footer
         }
-    }
-
-    private var header: some View {
-        Text("Nadchodzące")
-            .font(.headline)
-            .fontWeight(.medium)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
     }
 
     @ViewBuilder
@@ -41,76 +35,115 @@ struct EventListView: View {
         if viewModel.accessDenied {
             AccessDeniedView()
                 .padding(16)
-        } else if viewModel.upcomingEvents.isEmpty {
-            Text("Brak nadchodzących wydarzeń")
+        } else if viewModel.sections.isEmpty {
+            Text("No upcoming events")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 28)
         } else {
-            VStack(spacing: 0) {
-                ForEach(viewModel.upcomingEvents) { row in
-                    EventRowView(row: row)
-                    if row.id != viewModel.upcomingEvents.last?.id {
+            eventList
+        }
+    }
+
+    private var eventList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(viewModel.sections) { section in
+                    if section.id != viewModel.sections.first?.id {
                         Divider()
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
                     }
+                    DaySectionView(section: section)
                 }
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
+                }
+            )
         }
+        .frame(height: min(max(listHeight, 1), maxListHeight))
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(ContentHeightKey.self) { listHeight = $0 }
     }
 
     private var footer: some View {
         HStack(spacing: 12) {
             Button {
-                viewModel.reload()
-            } label: {
-                Label("Odśwież", systemImage: "arrow.clockwise")
-            }
-            Spacer()
-            Button {
                 showingSettings = true
             } label: {
-                Label("Ustawienia", systemImage: "gearshape")
+                Label("Settings", systemImage: "gearshape")
             }
             Spacer()
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
-                Label("Zakończ", systemImage: "power")
+                Label("Quit", systemImage: "power")
             }
         }
         .buttonStyle(.borderless)
         .labelStyle(.titleAndIcon)
         .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .padding(.vertical, 10)
     }
 }
 
-/// One event row: colour dot, title + calendar name, and the time/all-day label.
+/// A day group: a `Today, Jul 16`-style header followed by its event rows.
+struct DaySectionView: View {
+    let section: DaySection
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            ForEach(section.rows) { row in
+                EventRowView(row: row)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 4) {
+            Text("\(section.title),")
+                .fontWeight(.semibold)
+            Text(section.dateLabel)
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+    }
+}
+
+/// One event row: a calendar-colour ring, the time range, and the title.
 struct EventRowView: View {
     let row: EventRow
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Circle()
-                .fill(row.calendarColor)
-                .frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(row.title)
-                    .lineLimit(1)
-                Text(row.calendarTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 10)
-            Text(row.subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+                .strokeBorder(row.calendarColor, lineWidth: 1.5)
+                .frame(width: 13, height: 13)
+            time
+                .font(.body.monospacedDigit())
+                .frame(width: 96, alignment: .leading)
+            Text(row.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .padding(.vertical, 5)
+    }
+
+    private var time: Text {
+        if row.isAllDay {
+            return Text("All day").foregroundStyle(.secondary)
+        }
+        return Text(row.startTime).foregroundStyle(.primary)
+            + Text(" – \(row.endTime)").foregroundStyle(.secondary)
     }
 }
 
@@ -118,18 +151,27 @@ struct EventRowView: View {
 struct AccessDeniedView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Brak dostępu do kalendarza")
+            Text("Calendar access denied")
                 .font(.headline)
-            Text("Aby zobaczyć nadchodzące wydarzenia, zezwól aplikacji na dostęp do kalendarza w Ustawieniach systemowych (Prywatność → Kalendarze).")
+            Text("To see your upcoming events, allow calendar access in System Settings (Privacy → Calendars).")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Otwórz Ustawienia systemowe") {
+            Button("Open System Settings") {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
                     NSWorkspace.shared.open(url)
                 }
             }
             .padding(.top, 2)
         }
+    }
+}
+
+/// Measures the intrinsic height of the scrollable list so the pop-over can
+/// size to its content until it hits `maxListHeight`.
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

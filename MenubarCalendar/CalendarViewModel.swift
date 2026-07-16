@@ -9,8 +9,8 @@ import SwiftUI
 final class CalendarViewModel: ObservableObject {
     /// Text shown in the menu bar, e.g. `Standup… in 27m`.
     @Published var menuBarTitle: String = "…"
-    /// The up-to-5 upcoming events shown in the pop-over.
-    @Published var upcomingEvents: [EventRow] = []
+    /// The upcoming events shown in the pop-over, grouped into the next 3 days.
+    @Published var sections: [DaySection] = []
     /// True when the user has denied (or not granted) calendar access.
     @Published var accessDenied: Bool = false
     /// All event calendars, for the settings picker.
@@ -112,7 +112,7 @@ final class CalendarViewModel: ObservableObject {
 
     private func showNoAccess() {
         accessDenied = true
-        upcomingEvents = []
+        sections = []
         availableCalendars = []
         selectedEvent = nil
         menuBarTitle = "No access"
@@ -149,7 +149,7 @@ final class CalendarViewModel: ObservableObject {
         // Empty means the user deselected everything → show nothing (don't fall
         // back to querying all calendars).
         guard !selected.isEmpty else {
-            upcomingEvents = []
+            sections = []
             selectedEvent = nil
             menuBarTitle = "No events"
             return
@@ -179,17 +179,24 @@ final class CalendarViewModel: ObservableObject {
             uniquingKeysWith: { first, _ in first }
         )
 
-        let list = EventLogic.upcomingList(
+        let groups = EventLogic.daySections(
             events, now: now, showAllDay: settings.showAllDay, calendar: cal
         )
-        upcomingEvents = list.map { event in
-            EventRow(
-                id: event.identifier,
-                title: EventLogic.listTitle(event.title),
-                subtitle: EventLogic.rowSubtitle(for: event, now: now, calendar: cal),
-                calendarColor: colorByCalendar[event.calendarIdentifier] ?? .gray,
-                calendarTitle: event.calendarTitle,
-                isAllDay: event.isAllDay
+        sections = groups.map { group in
+            DaySection(
+                id: group.dateLabel,
+                title: group.title,
+                dateLabel: group.dateLabel,
+                rows: group.events.map { event in
+                    EventRow(
+                        id: event.identifier,
+                        title: EventLogic.listTitle(event.title),
+                        startTime: EventLogic.timeString(for: event.startDate, calendar: cal),
+                        endTime: EventLogic.timeString(for: event.endDate, calendar: cal),
+                        calendarColor: colorByCalendar[event.calendarIdentifier] ?? .gray,
+                        isAllDay: event.isAllDay
+                    )
+                }
             )
         }
         selectedEvent = EventLogic.menuBarSelection(
