@@ -159,13 +159,20 @@ enum EventLogic {
         let dateLabel: String
         /// Events on this day, already filtered and sorted for display.
         let events: [CalendarEvent]
+        /// When `events` is empty, the message to show in its place:
+        /// `No more events left today` (today, all done) or `No events this day`.
+        /// `nil` when there are events to show.
+        let emptyMessage: String?
     }
 
     /// The pop-over list grouped into the next three days: today, tomorrow and
-    /// the day after. Today shows only events that are in progress or still to
-    /// come (`endDate > now`); the other two days show every event. All-day
-    /// events are gated by `showAllDay` and matched by overlap so a multi-day
-    /// event appears under each day it covers. Days with no events are omitted.
+    /// the day after. All three days are always returned — even when empty — so
+    /// the user never wonders whether a missing day is a bug. Today shows only
+    /// events that are in progress or still to come (`endDate > now`); the other
+    /// two days show every event. All-day events are gated by `showAllDay` and
+    /// matched by overlap so a multi-day event appears under each day it covers.
+    /// An empty day carries an `emptyMessage`: `No more events left today` when
+    /// today had events that all ended, otherwise `No events this day`.
     static func daySections(
         _ events: [CalendarEvent], now: Date, showAllDay: Bool, calendar: Calendar
     ) -> [DayGroup] {
@@ -177,28 +184,38 @@ enum EventLogic {
                   let nextDay = calendar.date(byAdding: .day, value: 1, to: day)
             else { continue }
 
-            let dayEvents = events
-                .filter { event in
-                    if event.isAllDay && !showAllDay { return false }
-                    guard overlaps(event, dayStart: day, dayEnd: nextDay, calendar: calendar)
-                    else { return false }
-                    // Today: hide events that have already ended.
-                    if offset == 0 { return event.endDate > now }
-                    return true
-                }
+            // Everything that falls on this day (all-day gated by the toggle),
+            // before the "already ended" filter — used to tell an all-done today
+            // apart from a genuinely empty day.
+            let overlapping = events.filter { event in
+                if event.isAllDay && !showAllDay { return false }
+                return overlaps(event, dayStart: day, dayEnd: nextDay, calendar: calendar)
+            }
+
+            let dayEvents = overlapping
+                // Today: hide events that have already ended.
+                .filter { offset != 0 || $0.endDate > now }
                 .sorted { a, b in
                     if a.startDate != b.startDate { return a.startDate < b.startDate }
                     if a.isAllDay != b.isAllDay { return !a.isAllDay }
                     return a.identifier < b.identifier
                 }
 
-            guard !dayEvents.isEmpty else { continue }
+            let emptyMessage: String?
+            if dayEvents.isEmpty {
+                emptyMessage = (offset == 0 && !overlapping.isEmpty)
+                    ? "No more events left today"
+                    : "No events this day"
+            } else {
+                emptyMessage = nil
+            }
 
             groups.append(DayGroup(
                 date: day,
                 title: sectionHeaderTitle(for: day, now: now, calendar: calendar),
                 dateLabel: dateLabel(for: day, calendar: calendar),
-                events: dayEvents
+                events: dayEvents,
+                emptyMessage: emptyMessage
             ))
         }
 
@@ -218,12 +235,14 @@ enum EventLogic {
 
     // MARK: - Menu-bar selection (PRD §3.4, §4.4)
 
-    /// The event shown in the menu bar. A meeting *in progress* takes priority
-    /// (so the bar shows its remaining time instead of jumping to the next
-    /// event); if several overlap, the one ending soonest wins. Otherwise the
-    /// choice is by nearest *day*, and within the same day a timed event outranks
-    /// an all-day one (PRD §3.4: all-day is the "background" of the day), so an
-    /// all-day *today* wins over a timed event *tomorrow*.
+    /// The event shown in the menu bar — restricted to what is relevant *today*.
+    /// A meeting *in progress* takes priority (so the bar shows its remaining time
+    /// instead of jumping ahead); if several overlap, the one ending soonest wins.
+    /// Otherwise the candidate must be happening today — a timed event later today
+    /// or an all-day event covering today — and within today a timed event
+    /// outranks an all-day one (PRD §3.4: all-day is the "background" of the day).
+    /// Events on later days are deliberately ignored so the bar doesn't surface a
+    /// far-out countdown; when nothing is left today it returns `nil`.
     static func menuBarSelection(
         _ events: [CalendarEvent], now: Date, showAllDay: Bool, calendar: Calendar
     ) -> CalendarEvent? {
@@ -232,31 +251,44 @@ enum EventLogic {
         if let current = ongoing.min(by: { $0.endDate < $1.endDate }) {
             return current
         }
-        return candidates(events, now: now, showAllDay: showAllDay, calendar: calendar).min { a, b in
-            let dayA = calendar.startOfDay(for: a.startDate)
-            let dayB = calendar.startOfDay(for: b.startDate)
-            if dayA != dayB { return dayA < dayB }
+
+        let startOfToday = calendar.startOfDay(for: now)
+        guard let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday)
+        else { return nil }
+
+        let today = candidates(events, now: now, showAllDay: showAllDay, calendar: calendar).filter { event in
+            if event.isAllDay {
+                // Covers today (started on/before today and not yet ended).
+                return event.startDate < startOfTomorrow && event.endDate > startOfToday
+            }
+            // Timed event later today (candidates already dropped past ones).
+            return calendar.isDate(event.startDate, inSameDayAs: now)
+        }
+        return today.min { a, b in
             if a.isAllDay != b.isAllDay { return !a.isAllDay }
             return a.startDate < b.startDate
         }
     }
 
     /// The full menu-bar label: `Standup · 15m left` while a meeting is running,
-    /// `Standup · in 27m` before it starts, or `Urlop · (dziś)` for all-day. The
-    /// title carries a trailing `…` only when it was truncated.
-    /// Falls back to `Brak wydarzeń` when there is nothing to show.
+    /// `Standup · in 27m` before it starts, or `Urlop · (today)` for all-day. The
+    /// title carries a trailing `…` only when it was truncated. Falls back to
+    /// `No events today` when nothing is left today.
     static func menuBarTitle(
         _ events: [CalendarEvent], now: Date, showAllDay: Bool, calendar: Calendar
     ) -> String {
         guard let event = menuBarSelection(events, now: now, showAllDay: showAllDay, calendar: calendar) else {
-            return "No events"
+            return "No events today"
         }
         let title = truncatedTitle(event.title)
         if isInProgress(event, now: now) {
             return "\(title) · \(remainingString(from: now, to: event.endDate))"
         }
         if event.isAllDay {
-            return "\(title) · (\(menuBarDayLabel(for: event.startDate, now: now, calendar: calendar)))"
+            // Selection guarantees the all-day event covers today, so a multi-day
+            // one that started earlier should still read "(today)".
+            let day = max(event.startDate, calendar.startOfDay(for: now))
+            return "\(title) · (\(menuBarDayLabel(for: day, now: now, calendar: calendar)))"
         }
         return "\(title) · \(countdownString(from: now, to: event.startDate))"
     }
