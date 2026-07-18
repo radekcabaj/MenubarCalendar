@@ -112,14 +112,45 @@ final class EventLogicTests: XCTestCase {
         XCTAssertEqual(title, "Urlop · (today)")
     }
 
-    func testMenuBarFutureAllDayUsesWeekday() {
+    func testMenuBarMultiDayAllDayCoveringTodayShowsToday() {
+        // A multi-day all-day event that started earlier still reads "(today)".
+        let vacation = event("Urlop", start: date(2026, 7, 13, 0, 0), end: date(2026, 7, 16, 0, 0), allDay: true)
+        XCTAssertEqual(
+            EventLogic.menuBarTitle([vacation], now: now, showAllDay: true, calendar: calendar),
+            "Urlop · (today)"
+        )
+    }
+
+    func testMenuBarFutureAllDayShowsNoEventsToday() {
+        // A future all-day event is not relevant today → the bar stays quiet.
         let fridayAllDay = event("Konferencja", start: date(2026, 7, 17, 0, 0), end: date(2026, 7, 17, 23, 59), allDay: true)
         let title = EventLogic.menuBarTitle([fridayAllDay], now: now, showAllDay: true, calendar: calendar)
-        XCTAssertEqual(title, "Konferencja · (Fri)")
+        XCTAssertEqual(title, "No events today")
+    }
+
+    func testMenuBarShowsNoEventsTodayWhenOnlyLaterEvents() {
+        // Nothing today; the next events are tomorrow and Friday → "No events today"
+        // instead of a far-out countdown (the 43h-out screenshot case).
+        let tomorrow = event("Jutro", start: date(2026, 7, 15, 9, 0), id: "a")
+        let friday = event("Piątek", start: date(2026, 7, 17, 9, 0), id: "b")
+        XCTAssertEqual(
+            EventLogic.menuBarTitle([tomorrow, friday], now: now, showAllDay: true, calendar: calendar),
+            "No events today"
+        )
+    }
+
+    func testMenuBarShowsLaterTodayEvent() {
+        // A timed event later today is still shown with its countdown.
+        let laterToday = event("Standup", start: date(2026, 7, 14, 14, 0))
+        let tomorrow = event("Jutro", start: date(2026, 7, 15, 9, 0))
+        XCTAssertEqual(
+            EventLogic.menuBarTitle([tomorrow, laterToday], now: now, showAllDay: true, calendar: calendar),
+            "Standup · in 4h"
+        )
     }
 
     func testMenuBarNoEvents() {
-        XCTAssertEqual(EventLogic.menuBarTitle([], now: now, showAllDay: true, calendar: calendar), "No events")
+        XCTAssertEqual(EventLogic.menuBarTitle([], now: now, showAllDay: true, calendar: calendar), "No events today")
     }
 
     // MARK: - In-progress meeting
@@ -184,19 +215,19 @@ final class EventLogicTests: XCTestCase {
         let almostDone = event("Kończy się", start: now.addingTimeInterval(-30 * 60), end: now.addingTimeInterval(30))
         XCTAssertEqual(
             EventLogic.menuBarTitle([almostDone], now: now, showAllDay: false, calendar: calendar),
-            "No events"
+            "No events today"
         )
     }
 
     func testMenuBarAllDayHiddenWhenToggleOff() {
         let allDay = event("Urlop", start: date(2026, 7, 14, 0, 0), end: date(2026, 7, 14, 23, 59), allDay: true)
-        XCTAssertEqual(EventLogic.menuBarTitle([allDay], now: now, showAllDay: false, calendar: calendar), "No events")
+        XCTAssertEqual(EventLogic.menuBarTitle([allDay], now: now, showAllDay: false, calendar: calendar), "No events today")
     }
 
     func testMenuBarIgnoresPastTimedEvents() {
         // "Past" here means it already ended (before now, which is 10:00).
         let past = event("Było", start: date(2026, 7, 14, 8, 0), end: date(2026, 7, 14, 9, 0))
-        XCTAssertEqual(EventLogic.menuBarTitle([past], now: now, showAllDay: true, calendar: calendar), "No events")
+        XCTAssertEqual(EventLogic.menuBarTitle([past], now: now, showAllDay: true, calendar: calendar), "No events today")
     }
 
     // MARK: - Day-grouped list
@@ -223,21 +254,56 @@ final class EventLogicTests: XCTestCase {
         XCTAssertEqual(groups[2].events.map(\.title), ["DayThree"])
     }
 
-    func testDaySectionsOmitsEmptyDays() {
-        // Nothing tomorrow → the Tomorrow group is skipped entirely.
+    func testDaySectionsAlwaysShowsThreeDaysWithEmptyState() {
+        // Nothing tomorrow → the Tomorrow group still shows, with an empty state.
         let today = event("Today", start: date(2026, 7, 14, 14, 0), id: "a")
         let dayThree = event("DayThree", start: date(2026, 7, 16, 11, 0), id: "b")
         let groups = EventLogic.daySections([today, dayThree], now: now, showAllDay: true, calendar: calendar)
-        XCTAssertEqual(groups.map(\.title), ["Today", "Thursday"])
+        XCTAssertEqual(groups.map(\.title), ["Today", "Tomorrow", "Thursday"])
+        XCTAssertEqual(groups[0].events.map(\.title), ["Today"])
+        XCTAssertNil(groups[0].emptyMessage)
+        XCTAssertTrue(groups[1].events.isEmpty)
+        XCTAssertEqual(groups[1].emptyMessage, "No events this day")
+        XCTAssertEqual(groups[2].events.map(\.title), ["DayThree"])
+        XCTAssertNil(groups[2].emptyMessage)
+    }
+
+    func testDaySectionsTodayAllEndedShowsNoMoreEventsMessage() {
+        // The only event today ended before now (10:00); nothing later this week.
+        let endedToday = event("Ended", start: date(2026, 7, 14, 8, 0), end: date(2026, 7, 14, 9, 0), id: "e")
+        let groups = EventLogic.daySections([endedToday], now: now, showAllDay: true, calendar: calendar)
+        XCTAssertEqual(groups.map(\.title), ["Today", "Tomorrow", "Thursday"])
+        XCTAssertTrue(groups[0].events.isEmpty)
+        XCTAssertEqual(groups[0].emptyMessage, "No more events left today")
+        XCTAssertEqual(groups[1].emptyMessage, "No events this day")
+        XCTAssertEqual(groups[2].emptyMessage, "No events this day")
+    }
+
+    func testDaySectionsZeroEventsShowsNoEventsThisDay() {
+        // A completely empty stretch (e.g. a weekend) → every day shows an empty state.
+        let groups = EventLogic.daySections([], now: now, showAllDay: true, calendar: calendar)
+        XCTAssertEqual(groups.map(\.title), ["Today", "Tomorrow", "Thursday"])
+        XCTAssertEqual(
+            groups.map(\.emptyMessage),
+            ["No events this day", "No events this day", "No events this day"]
+        )
     }
 
     func testDaySectionsHidesAllDayWhenToggleOff() {
         let allDay = event("Holiday", start: date(2026, 7, 15, 0, 0), end: date(2026, 7, 16, 0, 0), allDay: true)
-        XCTAssertTrue(EventLogic.daySections([allDay], now: now, showAllDay: false, calendar: calendar).isEmpty)
+        // Toggle off → three groups, all empty (the all-day event is hidden).
+        let off = EventLogic.daySections([allDay], now: now, showAllDay: false, calendar: calendar)
+        XCTAssertEqual(off.map(\.title), ["Today", "Tomorrow", "Thursday"])
         XCTAssertEqual(
-            EventLogic.daySections([allDay], now: now, showAllDay: true, calendar: calendar).map(\.title),
-            ["Tomorrow"]
+            off.map(\.emptyMessage),
+            ["No events this day", "No events this day", "No events this day"]
         )
+        // Toggle on → the all-day event lands under Tomorrow only.
+        let on = EventLogic.daySections([allDay], now: now, showAllDay: true, calendar: calendar)
+        XCTAssertEqual(on[1].events.map(\.title), ["Holiday"])
+        XCTAssertNil(on[1].emptyMessage)
+        XCTAssertEqual(on[0].emptyMessage, "No events this day")
+        XCTAssertEqual(on[2].emptyMessage, "No events this day")
     }
 
     func testDaySectionsShowsMultiDayAllDayUnderEachDay() {

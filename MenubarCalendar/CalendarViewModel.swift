@@ -187,6 +187,7 @@ final class CalendarViewModel: ObservableObject {
                 id: group.dateLabel,
                 title: group.title,
                 dateLabel: group.dateLabel,
+                emptyMessage: group.emptyMessage,
                 rows: group.events.map { event in
                     EventRow(
                         id: event.identifier,

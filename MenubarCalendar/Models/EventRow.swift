@@ -21,5 +21,8 @@ struct DaySection: Identifiable {
     let title: String
     /// `Jul 16`.
     let dateLabel: String
+    /// Message shown when `rows` is empty (`No more events left today` /
+    /// `No events this day`); `nil` when the day has events.
+    let emptyMessage: String?
     let rows: [EventRow]
 }

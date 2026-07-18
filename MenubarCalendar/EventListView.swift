@@ -97,8 +97,15 @@ struct DaySectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            ForEach(section.rows) { row in
-                EventRowView(row: row)
+            if section.rows.isEmpty {
+                Text(section.emptyMessage ?? "No events this day")
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 5)
+            } else {
+                ForEach(section.rows) { row in
+                    EventRowView(row: row)
+                }
             }
         }
     }
