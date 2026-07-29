@@ -25,10 +25,26 @@ final class CalendarViewModel: ObservableObject {
     }
 
     private let store = EKEventStore()
+    /// The live `EKEvent`s currently shown, keyed by `CalendarEvent.identifier`
+    /// (== `EventRow.id`), so the swipe actions can act on the exact occurrence
+    /// on screen — including a single instance of a recurring event.
+    private var eventsByRowID: [String: EKEvent] = [:]
     private let settings: AppSettings
+    /// Google Calendar connection, used to send a real "declined" RSVP that
+    /// notifies the organizer (EventKit can't). Injected so it can be shared
+    /// with the settings UI.
+    let google: GoogleCalendarService
     private let hotKey = HotKeyManager()
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
+
+    /// iCal UIDs the user has declined through the Google API this install.
+    /// A decline keeps the event on the server (marked declined) rather than
+    /// deleting it, so we hide these locally until sync catches up. Persisted so
+    /// they don't reappear after a restart.
+    private var declinedUIDs: Set<String> {
+        didSet { UserDefaults.standard.set(Array(declinedUIDs), forKey: "declinedICalUIDs") }
+    }
 
     /// A Polish-locale calendar so day/time labels match the PRD copy.
     private var calendar: Calendar {
@@ -41,8 +57,10 @@ final class CalendarViewModel: ObservableObject {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, google: GoogleCalendarService) {
         self.settings = settings
+        self.google = google
+        self.declinedUIDs = Set(UserDefaults.standard.stringArray(forKey: "declinedICalUIDs") ?? [])
 
         // Don't touch EventKit / timers when hosted by the unit-test runner.
         guard !Self.isRunningTests else { return }
@@ -115,6 +133,7 @@ final class CalendarViewModel: ObservableObject {
         sections = []
         availableCalendars = []
         selectedEvent = nil
+        eventsByRowID = [:]
         menuBarTitle = "No access"
     }
 
@@ -151,6 +170,7 @@ final class CalendarViewModel: ObservableObject {
         guard !selected.isEmpty else {
             sections = []
             selectedEvent = nil
+            eventsByRowID = [:]
             menuBarTitle = "No events"
             return
         }
@@ -158,9 +178,14 @@ final class CalendarViewModel: ObservableObject {
         let predicate = store.predicateForEvents(
             withStart: cal.startOfDay(for: now), end: end, calendars: selected
         )
-        let events = store.events(matching: predicate).map { ek in
-            CalendarEvent(
-                identifier: "\(ek.calendarItemIdentifier)@\(ek.startDate.timeIntervalSince1970)",
+        var byRowID: [String: EKEvent] = [:]
+        let events = store.events(matching: predicate)
+            .filter { !isDeclined($0) }
+            .map { ek -> CalendarEvent in
+            let id = "\(ek.calendarItemIdentifier)@\(ek.startDate.timeIntervalSince1970)"
+            byRowID[id] = ek
+            return CalendarEvent(
+                identifier: id,
                 title: ek.title ?? "",
                 startDate: ek.startDate,
                 endDate: ek.endDate,
@@ -173,6 +198,7 @@ final class CalendarViewModel: ObservableObject {
                 accountEmail: accountEmail(for: ek)
             )
         }
+        eventsByRowID = byRowID
 
         let colorByCalendar = Dictionary(
             allCalendars.map { ($0.calendarIdentifier, color(for: $0)) },
@@ -195,7 +221,8 @@ final class CalendarViewModel: ObservableObject {
                         startTime: EventLogic.timeString(for: event.startDate, calendar: cal),
                         endTime: EventLogic.timeString(for: event.endDate, calendar: cal),
                         calendarColor: colorByCalendar[event.calendarIdentifier] ?? .gray,
-                        isAllDay: event.isAllDay
+                        isAllDay: event.isAllDay,
+                        isEditable: byRowID[event.identifier]?.calendar.allowsContentModifications ?? false
                     )
                 }
             )
@@ -260,6 +287,102 @@ final class CalendarViewModel: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    // MARK: - Swipe actions (decline / edit)
+
+    /// Decline attendance. When a Google account is connected and the event has
+    /// an iCal UID, this sends a real "declined" RSVP through the Google API
+    /// (`sendUpdates=all`) so the organizer is notified — including events on
+    /// calendars shared into the account with edit access. The event is then
+    /// hidden locally. If Google isn't connected, or the RSVP can't be sent
+    /// (read-only calendar, not an attendee), it falls back to removing the
+    /// local copy via EventKit — which does *not* reliably notify the organizer.
+    func declineEvent(rowID: String) {
+        guard let event = eventsByRowID[rowID] else { NSSound.beep(); return }
+        let uid = event.calendarItemExternalIdentifier
+
+        if google.isConnected, let uid, !uid.isEmpty {
+            Task { @MainActor in
+                do {
+                    if try await google.declineEvent(iCalUID: uid) {
+                        declinedUIDs.insert(uid)
+                        eventsByRowID[rowID] = nil
+                        reload()
+                        return
+                    }
+                    diag("google decline: event not found on a writable calendar, falling back")
+                } catch {
+                    diag("google decline failed for \(rowID): \(error)")
+                }
+                localRemove(event, rowID: rowID)
+            }
+        } else {
+            localRemove(event, rowID: rowID)
+        }
+    }
+
+    /// EventKit fallback: remove the local copy of the event.
+    private func localRemove(_ event: EKEvent, rowID: String) {
+        do {
+            try store.remove(event, span: .thisEvent, commit: true)
+            eventsByRowID[rowID] = nil
+            reload()
+        } catch {
+            diag("remove failed for \(rowID): \(error)")
+            NSSound.beep()
+        }
+    }
+
+    /// Whether the current user (or a calendar owned/managed by them) has
+    /// declined this event, or we declined it via the Google API and are hiding
+    /// it until sync catches up.
+    private func isDeclined(_ event: EKEvent) -> Bool {
+        if let uid = event.calendarItemExternalIdentifier, declinedUIDs.contains(uid) {
+            return true
+        }
+        return event.attendees?.contains {
+            $0.isCurrentUser && $0.participantStatus == .declined
+        } ?? false
+    }
+
+    /// A snapshot of the editable fields for the event backing `rowID`, or `nil`
+    /// if it's gone or lives in a read-only calendar.
+    func editDraft(rowID: String) -> EventEditDraft? {
+        guard let event = eventsByRowID[rowID],
+              event.calendar.allowsContentModifications else { return nil }
+        return EventEditDraft(
+            title: event.title ?? "",
+            isAllDay: event.isAllDay,
+            startDate: event.startDate,
+            endDate: event.endDate,
+            location: event.location ?? "",
+            notes: event.notes ?? "",
+            hasAttendees: !(event.attendees ?? []).isEmpty
+        )
+    }
+
+    /// Write an edited draft back to the event and save it. As with a delete, a
+    /// synced account propagates the change and notifies guests on the next sync.
+    @discardableResult
+    func saveEdit(_ draft: EventEditDraft, rowID: String) -> Bool {
+        guard let event = eventsByRowID[rowID],
+              event.calendar.allowsContentModifications else { NSSound.beep(); return false }
+        event.title = draft.title
+        event.isAllDay = draft.isAllDay
+        event.startDate = draft.startDate
+        event.endDate = draft.endDate
+        event.location = draft.location.isEmpty ? nil : draft.location
+        event.notes = draft.notes.isEmpty ? nil : draft.notes
+        do {
+            try store.save(event, span: .thisEvent, commit: true)
+            reload()
+            return true
+        } catch {
+            diag("save failed for \(rowID): \(error)")
+            NSSound.beep()
+            return false
+        }
     }
 
     /// Best guess at which account an event belongs to: the "current user"

@@ -28,5 +28,20 @@
 	<string>Aplikacja potrzebuje dostępu do kalendarza, aby pokazywać najbliższe wydarzenie w pasku menu.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Tonik. All rights reserved.</string>
+	<!-- Google Calendar decline integration. Paste your OAuth client id below and
+	     set the URL scheme to the reversed client id (see setup notes). -->
+	<key>GoogleOAuthClientID</key>
+	<string>888130424418-help89ho1e7lqhfv198kgnc7p4ge53hv.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.rc.MenubarCalendar.google-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.888130424418-help89ho1e7lqhfv198kgnc7p4ge53hv</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
