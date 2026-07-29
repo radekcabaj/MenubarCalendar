@@ -11,6 +11,31 @@ struct EventRow: Identifiable {
     let endTime: String
     let calendarColor: Color
     let isAllDay: Bool
+    /// Whether the backing event lives in a writable calendar, i.e. whether the
+    /// Decline / Edit swipe actions should be offered for this row.
+    let isEditable: Bool
+    /// Whether the event has a joinable meeting link (shows the Join affordance).
+    var hasMeeting: Bool = false
+    /// Whether this is the event surfaced in the menu bar (next up / current) —
+    /// it gets an accent highlight so the eye lands on it first.
+    var isNext: Bool = false
+    /// Whether the event is happening right now (drives the live pulse).
+    var isInProgress: Bool = false
+}
+
+/// A mutable snapshot of an event's editable fields. Produced by
+/// `CalendarViewModel.editDraft(rowID:)`, edited in `EventEditScreen`, and
+/// written back through `CalendarViewModel.saveEdit(_:rowID:)`.
+struct EventEditDraft {
+    var title: String
+    var isAllDay: Bool
+    var startDate: Date
+    var endDate: Date
+    var location: String
+    var notes: String
+    /// Whether the event has guests — drives the "guests will be notified" note
+    /// so the user knows an edit is not silent.
+    var hasAttendees: Bool
 }
 
 /// A day group in the pop-over: a header (`Today` / `Tomorrow` / `Friday` plus a

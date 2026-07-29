@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var viewModel: CalendarViewModel
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var loginItem: LoginItemManager
+    @EnvironmentObject private var google: GoogleCalendarService
     let onBack: () -> Void
 
     var body: some View {
@@ -14,6 +15,8 @@ struct SettingsView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    googleSection
+                    Divider()
                     generalSection
                     Divider()
                     shortcutSection
@@ -91,6 +94,58 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var googleSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Odrzucanie wydarzeń (Google)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if !google.isConfigured {
+                Text("Integracja Google nie jest skonfigurowana w tej wersji aplikacji.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if google.isConnected {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(google.accountEmail ?? "Połączono z Google")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("Odłącz") { google.disconnect() }
+                }
+                Text("Odrzucenie wydarzenia powiadomi organizatora (także dla kalendarzy udostępnionych z prawem edycji).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Button {
+                    Task { await google.connect() }
+                } label: {
+                    if google.isBusy {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Połącz konto Google…", systemImage: "person.crop.circle.badge.plus")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(google.isBusy)
+                Text("Bez połączenia odrzucenie tylko usuwa wydarzenie z Twojego widoku — organizator nie zostanie powiadomiony.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let error = google.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
