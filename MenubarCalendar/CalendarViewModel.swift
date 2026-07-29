@@ -29,6 +29,8 @@ final class CalendarViewModel: ObservableObject {
     /// (== `EventRow.id`), so the swipe actions can act on the exact occurrence
     /// on screen — including a single instance of a recurring event.
     private var eventsByRowID: [String: EKEvent] = [:]
+    /// Joinable meeting link (and its account) per row id, for tap/hover "Join".
+    private var meetingByRowID: [String: (url: URL, accountEmail: String?)] = [:]
     private let settings: AppSettings
     /// Google Calendar connection, used to send a real "declined" RSVP that
     /// notifies the organizer (EventKit can't). Injected so it can be shared
@@ -134,6 +136,7 @@ final class CalendarViewModel: ObservableObject {
         availableCalendars = []
         selectedEvent = nil
         eventsByRowID = [:]
+        meetingByRowID = [:]
         menuBarTitle = "No access"
     }
 
@@ -171,6 +174,7 @@ final class CalendarViewModel: ObservableObject {
             sections = []
             selectedEvent = nil
             eventsByRowID = [:]
+            meetingByRowID = [:]
             menuBarTitle = "No events"
             return
         }
@@ -179,12 +183,13 @@ final class CalendarViewModel: ObservableObject {
             withStart: cal.startOfDay(for: now), end: end, calendars: selected
         )
         var byRowID: [String: EKEvent] = [:]
+        var meetingMap: [String: (url: URL, accountEmail: String?)] = [:]
         let events = store.events(matching: predicate)
             .filter { !isDeclined($0) }
             .map { ek -> CalendarEvent in
             let id = "\(ek.calendarItemIdentifier)@\(ek.startDate.timeIntervalSince1970)"
             byRowID[id] = ek
-            return CalendarEvent(
+            let event = CalendarEvent(
                 identifier: id,
                 title: ek.title ?? "",
                 startDate: ek.startDate,
@@ -197,14 +202,22 @@ final class CalendarViewModel: ObservableObject {
                 notes: ek.notes,
                 accountEmail: accountEmail(for: ek)
             )
+            if let url = EventLinkExtractor.meetingURL(for: event) {
+                meetingMap[id] = (url, event.accountEmail)
+            }
+            return event
         }
         eventsByRowID = byRowID
+        meetingByRowID = meetingMap
 
         let colorByCalendar = Dictionary(
             allCalendars.map { ($0.calendarIdentifier, color(for: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
 
+        let selection = EventLogic.menuBarSelection(
+            events, now: now, showAllDay: settings.showAllDay, calendar: cal
+        )
         let groups = EventLogic.daySections(
             events, now: now, showAllDay: settings.showAllDay, calendar: cal
         )
@@ -222,14 +235,15 @@ final class CalendarViewModel: ObservableObject {
                         endTime: EventLogic.timeString(for: event.endDate, calendar: cal),
                         calendarColor: colorByCalendar[event.calendarIdentifier] ?? .gray,
                         isAllDay: event.isAllDay,
-                        isEditable: byRowID[event.identifier]?.calendar.allowsContentModifications ?? false
+                        isEditable: byRowID[event.identifier]?.calendar.allowsContentModifications ?? false,
+                        hasMeeting: meetingMap[event.identifier] != nil,
+                        isNext: event.identifier == selection?.identifier,
+                        isInProgress: EventLogic.isInProgress(event, now: now)
                     )
                 }
             )
         }
-        selectedEvent = EventLogic.menuBarSelection(
-            events, now: now, showAllDay: settings.showAllDay, calendar: cal
-        )
+        selectedEvent = selection
         menuBarTitle = EventLogic.menuBarTitle(
             events, now: now, showAllDay: settings.showAllDay, calendar: cal
         )
@@ -275,6 +289,12 @@ final class CalendarViewModel: ObservableObject {
         } else if let calendar = URL(string: "ical://") {
             NSWorkspace.shared.open(calendar)
         }
+    }
+
+    /// Open the meeting link for a specific list row (tap / hover "Join").
+    func openMeeting(rowID: String) {
+        guard let meeting = meetingByRowID[rowID] else { NSSound.beep(); return }
+        openMeetingURL(meeting.url, accountEmail: meeting.accountEmail)
     }
 
     /// Open in the Chrome profile matching the event's account, if enabled and

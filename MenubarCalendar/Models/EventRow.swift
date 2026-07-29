@@ -14,6 +14,13 @@ struct EventRow: Identifiable {
     /// Whether the backing event lives in a writable calendar, i.e. whether the
     /// Decline / Edit swipe actions should be offered for this row.
     let isEditable: Bool
+    /// Whether the event has a joinable meeting link (shows the Join affordance).
+    var hasMeeting: Bool = false
+    /// Whether this is the event surfaced in the menu bar (next up / current) —
+    /// it gets an accent highlight so the eye lands on it first.
+    var isNext: Bool = false
+    /// Whether the event is happening right now (drives the live pulse).
+    var isInProgress: Bool = false
 }
 
 /// A mutable snapshot of an event's editable fields. Produced by

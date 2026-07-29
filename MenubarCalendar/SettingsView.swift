@@ -129,9 +129,10 @@ struct SettingsView: View {
                     if google.isBusy {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text("Połącz konto Google…")
+                        Label("Połącz konto Google…", systemImage: "person.crop.circle.badge.plus")
                     }
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(google.isBusy)
                 Text("Bez połączenia odrzucenie tylko usuwa wydarzenie z Twojego widoku — organizator nie zostanie powiadomiony.")
                     .font(.caption)
