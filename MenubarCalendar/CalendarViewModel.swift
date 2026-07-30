@@ -331,11 +331,18 @@ final class CalendarViewModel: ObservableObject {
                         reload()
                         return
                     }
+                    // Cleanly found no writable copy / we're not an attendee:
+                    // a local remove is the best we can do here.
                     diag("google decline: event not found on a writable calendar, falling back")
+                    localRemove(event, rowID: rowID)
                 } catch {
+                    // A real API failure (e.g. a token missing the calendar
+                    // scope). Do NOT locally delete — that would hide the event
+                    // while leaving the user shown as attending on Google.
                     diag("google decline failed for \(rowID): \(error)")
+                    google.reportDeclineFailure(error)
+                    NSSound.beep()
                 }
-                localRemove(event, rowID: rowID)
             }
         } else {
             localRemove(event, rowID: rowID)
