@@ -80,6 +80,23 @@ final class GoogleCalendarService: NSObject, ObservableObject, ASWebAuthenticati
         tokens = nil
     }
 
+    /// Handle a decline that failed at the Google API. An auth/scope failure
+    /// means the stored token is stale (e.g. minted before a required scope was
+    /// added), so we drop it — the account shows disconnected and reconnecting
+    /// mints a token with the current scopes. Other failures just surface a
+    /// message. Callers must NOT locally delete the event on these, or the user
+    /// is left hidden-but-still-attending.
+    func reportDeclineFailure(_ error: Error) {
+        let ns = error as NSError
+        let isAuthFailure = ns.domain == "GoogleCalendar" && (ns.code == 401 || ns.code == 403)
+        if isAuthFailure {
+            disconnect()
+            errorMessage = "Google needs to be reconnected to decline events (its permissions changed). Open Settings and connect again."
+        } else {
+            errorMessage = "Couldn't send the decline to Google: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Public API: decline
 
     /// Decline the event with the given iCal UID on whichever writable calendar
@@ -333,7 +350,11 @@ private struct GoogleTokens: Codable {
 /// Reads the Google client id from Info.plist and derives the reversed-client-id
 /// redirect used by Google's installed-app OAuth flow.
 private enum GoogleConfig {
-    static let scope = "https://www.googleapis.com/auth/calendar.events"
+    // `calendar.events` lets us read/patch the RSVP; `calendar.calendarlist.readonly`
+    // is required for `calendarList.list`, which we use to find the writable
+    // calendar an invitation lives on (and to resolve the account email).
+    // Without the second scope every decline 403s on the first API call.
+    static let scope = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly"
 
     static var clientID: String? {
         let value = Bundle.main.object(forInfoDictionaryKey: "GoogleOAuthClientID") as? String
