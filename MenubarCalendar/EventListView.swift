@@ -14,6 +14,12 @@ struct EventListView: View {
     @State private var editing: EditingSession?
     /// The row awaiting a decline confirmation; non-nil shows the overlay.
     @State private var pendingDecline: EventRow?
+    /// The row the cursor is over; drives the single blue highlight that slides
+    /// between rows. When nil, the highlight rests on the current event.
+    @State private var hoveredRowID: EventRow.ID?
+    /// Shared namespace so the one highlight animates its move between rows
+    /// instead of fading in/out per row.
+    @Namespace private var highlightNamespace
 
     /// The list scrolls once it would grow past this; below it, the pop-over
     /// shrinks to (approximately) fit its content.
@@ -120,7 +126,21 @@ struct EventListView: View {
                     .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
                 } else {
                     ForEach(section.rows) { row in
-                        EventRowView(row: row, onJoin: { viewModel.openMeeting(rowID: row.id) })
+                        EventRowView(
+                            row: row,
+                            isHighlighted: highlightedRowID == row.id,
+                            namespace: highlightNamespace,
+                            onJoin: { viewModel.openMeeting(rowID: row.id) },
+                            onHoverChange: { hovering in
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    if hovering {
+                                        hoveredRowID = row.id
+                                    } else if hoveredRowID == row.id {
+                                        hoveredRowID = nil
+                                    }
+                                }
+                            }
+                        )
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -171,6 +191,13 @@ struct EventListView: View {
     /// (e.g. a declined event dropping out) animate.
     private var rowSignature: [String] {
         viewModel.sections.flatMap { $0.rows.map(\.id) }
+    }
+
+    /// The row that shows the blue highlight: only whatever the cursor is over,
+    /// so it's a pure hover affordance. The current event stands out on its own
+    /// (bright hours + pinned Join button) without holding the highlight.
+    private var highlightedRowID: EventRow.ID? {
+        hoveredRowID
     }
 
     private func dayHeader(_ section: DaySection, isFirst: Bool) -> some View {
@@ -291,12 +318,16 @@ struct EventListView: View {
 /// tap-to-join.
 struct EventRowView: View {
     let row: EventRow
+    /// True when this row currently holds the shared blue highlight.
+    var isHighlighted: Bool = false
+    /// Namespace of the shared highlight so it slides here from another row.
+    var namespace: Namespace.ID?
     var onJoin: () -> Void = {}
-    @State private var hovering = false
+    var onHoverChange: (Bool) -> Void = { _ in }
 
-    /// The Join affordance is revealed on hover, and pinned for the current
-    /// meeting so it's always one click away.
-    private var showJoin: Bool { hovering || row.isNext }
+    /// The Join button is pinned to the current meeting so it's always one
+    /// click away; other rows stay tap-to-join without the button.
+    private var showJoin: Bool { row.isNext }
 
     var body: some View {
         HStack(spacing: 11) {
@@ -309,60 +340,66 @@ struct EventRowView: View {
                 .truncationMode(.tail)
                 .fontWeight(row.isNext ? .semibold : .regular)
             Spacer(minLength: 6)
-            if row.hasMeeting {
+            // Pinned to the current event only, so ⌃J binds to a single button.
+            if row.hasMeeting && showJoin {
                 joinButton
-                    .opacity(showJoin ? 1 : 0)
-                    .scaleEffect(showJoin ? 1 : 0.85)
-                    .animation(.snappy(duration: 0.18), value: showJoin)
             }
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
         .background(rowBackground)
-        .overlay(alignment: .leading) {
-            if row.isNext {
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 6)
-            }
-        }
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) { self.hovering = hovering }
-        }
+        .onHover { onHoverChange($0) }
         .onTapGesture { if row.hasMeeting { onJoin() } }
         .help(row.hasMeeting ? "Join meeting" : "")
     }
 
+    /// A single blue capsule shared across the list: only the highlighted row
+    /// draws it, and the `matchedGeometryEffect` slides it here from wherever
+    /// it was, so the highlight glides between rows rather than blinking.
+    @ViewBuilder
     private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(
-                hovering ? AnyShapeStyle(.primary.opacity(0.07))
-                    : (row.isNext ? AnyShapeStyle(Color.accentColor.opacity(0.10))
-                       : AnyShapeStyle(Color.clear))
-            )
+        if isHighlighted {
+            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accentColor.opacity(0.15))
+            if let namespace {
+                shape.matchedGeometryEffect(id: "row-highlight", in: namespace)
+            } else {
+                shape
+            }
+        }
     }
 
+    /// One accent pill combining the camera glyph with a muted "⌃J" keycap, so
+    /// the click affordance and its keyboard shortcut read as a single control.
+    /// The shortcut is live only on the current event (the sole pinned button).
     private var joinButton: some View {
         Button(action: onJoin) {
-            Image(systemName: "video.fill")
-                .font(.caption2)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color.accentColor))
+            HStack(spacing: 5) {
+                Image(systemName: "video.fill")
+                    .font(.caption2)
+                Text("⌃J")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .opacity(0.8)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.accentColor))
         }
         .buttonStyle(.plain)
-        .help("Join meeting")
+        .keyboardShortcut("j", modifiers: .control)
+        .help("Join meeting (⌃J)")
     }
 
     private var time: Text {
+        // The current event's hours read bright (white); every other row's stay
+        // muted, so the "now" row stands out without a persistent background.
+        let color: Color = row.isNext ? .primary : .secondary
         if row.isAllDay {
-            return Text("All day").foregroundStyle(.secondary)
+            return Text("All day").foregroundStyle(color)
         }
-        // Times stay muted (like the dates) so event titles are what pop.
-        return Text("\(row.startTime) – \(row.endTime)").foregroundStyle(.secondary)
+        return Text("\(row.startTime) – \(row.endTime)").foregroundStyle(color)
     }
 }
 
