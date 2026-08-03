@@ -18,6 +18,7 @@ final class AppSettings: ObservableObject {
         static let hotKeyModifierRaw = "hotKeyModifierRaw"
         static let hotKeyCharacter = "hotKeyCharacter"
         static let openInChromeProfile = "openInChromeProfile"
+        static let preferredChromeProfileDirectory = "preferredChromeProfileDirectory"
     }
 
     private let defaults: UserDefaults
@@ -40,6 +41,13 @@ final class AppSettings: ObservableObject {
     /// Open meeting links in the Chrome profile that matches the event's account.
     @Published var openInChromeProfile: Bool {
         didSet { defaults.set(openInChromeProfile, forKey: Keys.openInChromeProfile) }
+    }
+
+    /// When non-empty, always open meeting links in this Chrome profile
+    /// directory (e.g. `"Profile 1"`), overriding the account-email match.
+    /// Empty means "match automatically to the event's account".
+    @Published var preferredChromeProfileDirectory: String {
+        didSet { defaults.set(preferredChromeProfileDirectory, forKey: Keys.preferredChromeProfileDirectory) }
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -66,6 +74,7 @@ final class AppSettings: ObservableObject {
         }
         self.hotKeyCharacter = defaults.string(forKey: Keys.hotKeyCharacter) ?? "M"
         self.openInChromeProfile = defaults.object(forKey: Keys.openInChromeProfile) as? Bool ?? true
+        self.preferredChromeProfileDirectory = defaults.string(forKey: Keys.preferredChromeProfileDirectory) ?? ""
     }
 
     /// The current hot key as modifier flags.
