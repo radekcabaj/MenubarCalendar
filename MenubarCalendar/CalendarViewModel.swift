@@ -297,16 +297,26 @@ final class CalendarViewModel: ObservableObject {
         openMeetingURL(meeting.url, accountEmail: meeting.accountEmail)
     }
 
-    /// Open in the Chrome profile matching the event's account, if enabled and
-    /// resolvable; otherwise open in the default browser.
+    /// Open in Chrome using, in order of preference: the profile the user pinned
+    /// in Settings, else the profile matching the event's account. Falls back to
+    /// the default browser when disabled or unresolvable.
     private func openMeetingURL(_ url: URL, accountEmail: String?) {
-        if settings.openInChromeProfile,
-           let email = accountEmail,
-           let directory = ChromeProfileResolver.profileDirectory(forEmail: email),
-           ChromeProfileResolver.open(url, profileDirectory: directory, accountEmail: email) {
-            return
+        if settings.openInChromeProfile {
+            let directory = resolveChromeProfileDirectory(accountEmail: accountEmail)
+            if let directory,
+               ChromeProfileResolver.open(url, profileDirectory: directory, accountEmail: accountEmail) {
+                return
+            }
         }
         NSWorkspace.shared.open(url)
+    }
+
+    /// The Chrome profile directory to open in: the pinned one from Settings if
+    /// set, otherwise the profile matching the event's account.
+    private func resolveChromeProfileDirectory(accountEmail: String?) -> String? {
+        let pinned = settings.preferredChromeProfileDirectory
+        if !pinned.isEmpty { return pinned }
+        return accountEmail.flatMap(ChromeProfileResolver.profileDirectory(forEmail:))
     }
 
     // MARK: - Swipe actions (decline / edit)

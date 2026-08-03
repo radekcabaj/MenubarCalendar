@@ -23,9 +23,9 @@ final class ChromeProfileResolverTests: XCTestCase {
     // Mirrors the real setup: tonik is a *secondary* account in "Default" only.
     private var profiles: [ChromeProfile] {
         [
-            ChromeProfile(directory: "Default", primaryEmail: "mail@radekcabaj.com",
+            ChromeProfile(directory: "Default", name: "radekcabaj.com", primaryEmail: "mail@radekcabaj.com",
                           accountEmails: ["mail@radekcabaj.com", "radek@tonik.com", "radek@alaffia.io"]),
-            ChromeProfile(directory: "Profile 1", primaryEmail: "cabajradek@gmail.com",
+            ChromeProfile(directory: "Profile 1", name: "Radek", primaryEmail: "cabajradek@gmail.com",
                           accountEmails: ["cabajradek@gmail.com", "mail@radekcabaj.com"]),
         ]
     }
@@ -36,6 +36,18 @@ final class ChromeProfileResolverTests: XCTestCase {
         let map = ChromeProfileResolver.primaryEmails(fromLocalState: localState)
         XCTAssertEqual(map["Default"], "mail@radekcabaj.com")
         XCTAssertEqual(map["Profile 1"], "cabajradek@gmail.com")
+    }
+
+    func testDisplayNamesFromLocalState() {
+        let map = ChromeProfileResolver.displayNames(fromLocalState: localState)
+        XCTAssertEqual(map["Default"], "Personal")
+        XCTAssertEqual(map["Profile 1"], "Gmail")
+    }
+
+    func testDisplayNameFallsBackToDirectory() {
+        let unnamed = ChromeProfile(directory: "Profile 3", name: nil,
+                                    primaryEmail: nil, accountEmails: [])
+        XCTAssertEqual(unnamed.displayName, "Profile 3")
     }
 
     func testAccountEmailsFromPreferences() {

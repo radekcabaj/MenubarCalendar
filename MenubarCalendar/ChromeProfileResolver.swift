@@ -1,12 +1,19 @@
 import AppKit
 import Foundation
 
-/// One Chrome profile: its directory, primary (sync) account, and every
-/// signed-in account.
+/// One Chrome profile: its directory, human-readable name, primary (sync)
+/// account, and every signed-in account.
 struct ChromeProfile: Equatable {
     let directory: String
+    let name: String?
     let primaryEmail: String?
     let accountEmails: [String]
+
+    /// Label for the picker: the profile's name, else its directory.
+    var displayName: String {
+        if let name, !name.isEmpty { return name }
+        return directory
+    }
 }
 
 /// Maps an account email to a Google Chrome profile and opens URLs in it.
@@ -42,6 +49,24 @@ enum ChromeProfileResolver {
                 result[directory] = email
             } else {
                 result[directory] = "" // known directory, no primary account
+            }
+        }
+        return result
+    }
+
+    /// `[profile directory: human-readable name]` from a `Local State` blob.
+    static func displayNames(fromLocalState data: Data) -> [String: String] {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let profile = json["profile"] as? [String: Any],
+            let cache = profile["info_cache"] as? [String: Any]
+        else { return [:] }
+
+        var result: [String: String] = [:]
+        for (directory, raw) in cache {
+            if let info = raw as? [String: Any],
+               let name = info["name"] as? String, !name.isEmpty {
+                result[directory] = name
             }
         }
         return result
@@ -88,6 +113,7 @@ enum ChromeProfileResolver {
 
     static func loadProfiles() -> [ChromeProfile] {
         guard let stateData = try? Data(contentsOf: localStateURL) else { return [] }
+        let names = displayNames(fromLocalState: stateData)
         return primaryEmails(fromLocalState: stateData).map { directory, primary in
             let prefsURL = chromeDirectory
                 .appendingPathComponent(directory)
@@ -98,10 +124,12 @@ enum ChromeProfileResolver {
             }
             return ChromeProfile(
                 directory: directory,
+                name: names[directory],
                 primaryEmail: primary.isEmpty ? nil : primary,
                 accountEmails: accounts
             )
         }
+        .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     static func profileDirectory(forEmail email: String) -> String? {
