@@ -2,7 +2,8 @@ import Foundation
 
 /// Extracts the best "join meeting" URL from an event. Pure and testable:
 /// looks at the `url` field first, then scans `location` and `notes` for links,
-/// preferring known conferencing hosts (Meet / Zoom / Teams / …).
+/// preferring known conferencing hosts (Meet / Zoom / Teams / …). Also pins
+/// Google links to the event's own account via `accountURL(_:authuserEmail:)`.
 enum EventLinkExtractor {
     /// Hosts we treat as video-conferencing links (matched as host or subdomain).
     static let meetingHosts = [
@@ -31,6 +32,20 @@ enum EventLinkExtractor {
         let urls = detectURLs(in: text)
         // Prefer a known meeting host; otherwise the first web link found.
         return urls.first(where: isMeetingHost) ?? urls.first
+    }
+
+    /// Add/replace `authuser=<email>` on Google links (`*.google.com`, so Meet
+    /// and Calendar included) so the event's own account is used when the
+    /// browser is signed into several. Non-Google URLs are returned as-is.
+    static func accountURL(_ url: URL, authuserEmail: String) -> URL {
+        guard let host = url.host?.lowercased(),
+              host == "google.com" || host.hasSuffix(".google.com"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return url }
+        var items = (components.queryItems ?? []).filter { $0.name != "authuser" }
+        items.append(URLQueryItem(name: "authuser", value: authuserEmail))
+        components.queryItems = items
+        return components.url ?? url
     }
 
     static func isWeb(_ url: URL) -> Bool {

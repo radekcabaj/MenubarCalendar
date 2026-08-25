@@ -53,4 +53,27 @@ final class EventLinkExtractorTests: XCTestCase {
         let e = event(notes: "Brak linku, tylko notatka.")
         XCTAssertNil(EventLinkExtractor.meetingURL(for: e))
     }
+
+    // MARK: - authuser rewrite
+
+    func testAddsAuthuserToGoogleURL() {
+        let url = URL(string: "https://meet.google.com/abc-defg-hij")!
+        let out = EventLinkExtractor.accountURL(url, authuserEmail: "radek@tonik.com")
+        XCTAssertTrue(out.absoluteString.contains("authuser=radek@tonik.com")
+                      || out.absoluteString.contains("authuser=radek%40tonik.com"))
+        XCTAssertEqual(out.host, "meet.google.com")
+    }
+
+    func testReplacesExistingAuthuser() {
+        let url = URL(string: "https://calendar.google.com/event?authuser=0&eid=x")!
+        let out = EventLinkExtractor.accountURL(url, authuserEmail: "radek@tonik.com")
+        let items = URLComponents(url: out, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(items.filter { $0.name == "authuser" }.count, 1)
+        XCTAssertEqual(items.first { $0.name == "authuser" }?.value, "radek@tonik.com")
+    }
+
+    func testLeavesNonGoogleURLUnchanged() {
+        let url = URL(string: "https://zoom.us/j/123")!
+        XCTAssertEqual(EventLinkExtractor.accountURL(url, authuserEmail: "radek@tonik.com"), url)
+    }
 }

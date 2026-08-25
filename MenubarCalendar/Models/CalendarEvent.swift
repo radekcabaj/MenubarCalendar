@@ -18,6 +18,7 @@ struct CalendarEvent: Equatable {
     var url: URL? = nil
     var location: String? = nil
     var notes: String? = nil
-    /// Email of the account this event belongs to, for Chrome-profile matching.
+    /// Email of the account this event belongs to, used to pin Google links to
+    /// that account (`authuser=`) when opening them.
     var accountEmail: String? = nil
 }
