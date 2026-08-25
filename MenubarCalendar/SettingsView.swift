@@ -7,7 +7,6 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var loginItem: LoginItemManager
     @EnvironmentObject private var google: GoogleCalendarService
-    @State private var chromeProfiles: [ChromeProfile] = []
     let onBack: () -> Void
 
     var body: some View {
@@ -84,29 +83,11 @@ struct SettingsView: View {
             .disabled(!settings.hotKeyEnabled)
             .opacity(settings.hotKeyEnabled ? 1 : 0.5)
 
-            Text("Otwiera link do spotkania z wydarzenia w pasku menu. Gdy brak linku — otwiera aplikację Kalendarz.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Toggle("Otwieraj w profilu Chrome", isOn: $settings.openInChromeProfile)
-
-            if settings.openInChromeProfile {
-                Picker("Profil", selection: $settings.preferredChromeProfileDirectory) {
-                    Text("Dopasuj do konta").tag("")
-                    ForEach(chromeProfiles, id: \.directory) { profile in
-                        Text(profile.displayName).tag(profile.directory)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
-            Text("„Dopasuj do konta” wybiera profil Chrome pasujący do konta spotkania (np. radek@tonik.com). Wybierz konkretny profil, aby zawsze otwierać w nim. Gdy brak dopasowania — otwiera w domyślnej przeglądarce.")
+            Text("Otwiera link do spotkania z wydarzenia w pasku menu — w domyślnej przeglądarce systemu. Linki Google otwierają się na koncie, do którego należy wydarzenie. Gdy brak linku — otwiera aplikację Kalendarz.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .onAppear { chromeProfiles = ChromeProfileResolver.loadProfiles() }
     }
 
     private var googleSection: some View {

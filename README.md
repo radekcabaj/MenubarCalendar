@@ -51,22 +51,22 @@ Zoom / Teams / …). If the event has no link, the Calendar app opens instead.
 Implemented with Carbon `RegisterEventHotKey` — works globally with **no**
 Accessibility permission and no third-party dependency.
 
-### Opening in the right Google (Chrome) profile
+### Opening in the right browser and Google account
 
-When "Otwieraj w dopasowanym profilu Chrome" is on (default), the meeting opens
-in the Chrome profile that matches the event's account:
+Meeting links always open in the **system default browser** — whatever you've
+set in System Settings (Safari, Arc, Dia, Chrome, …). There is no browser
+setting in the app.
+
+For Google links (`*.google.com`, so Meet and Calendar included) the event's own
+account is pinned with `authuser=<email>`, so the link lands on the right
+identity when the browser is signed into several accounts:
 
 1. The event's account is taken from the "current user" attendee's address, or
    the calendar's account / title when it's an email (e.g. `radek@tonik.com`).
-2. That email is matched to a Chrome profile — first as a profile's **primary**
-   account, otherwise as a **secondary** signed-in account (scanned from each
-   `<Profile>/Preferences`). Chrome is opened with `--profile-directory=<dir>`.
-3. For Google links (`*.google.com`) `authuser=<email>` is appended so the right
-   account is selected inside a multi-account profile.
+2. `authuser=<email>` is added to the URL (replacing any existing value).
 
-If no profile matches (or the toggle is off), the link opens in the default
-browser. Everything is read from the user's own local Chrome data; the
-parsing/matching/`authuser` logic is unit-tested.
+Non-Google links open untouched, as do events with no resolvable account. The
+`authuser` rewrite is a pure function in `EventLinkExtractor` and is unit-tested.
 
 On first launch the app requests **full calendar access**. If you deny it, the
 pop-over shows a message with a shortcut to System Settings → Privacy →
@@ -85,15 +85,15 @@ MenubarCalendar/
   LoginItemManager.swift     SMAppService launch-at-login wrapper
   HotKeyManager.swift        Carbon global hot key (RegisterEventHotKey)
   EventLogic.swift           Pure selection/formatting logic (unit-tested)
-  EventLinkExtractor.swift   Pure meeting-link extraction (unit-tested)
+  EventLinkExtractor.swift   Pure meeting-link extraction + `authuser` rewrite (unit-tested)
   Models/
     CalendarEvent.swift      Value type decoupled from EventKit
     EventRow.swift           Pre-formatted list row
 Config/
   Info.plist                 LSUIElement, NSCalendarsFullAccessUsageDescription
 MenubarCalendarTests/
-  EventLogicTests.swift            16 tests: countdown / all-day / selection
-  EventLinkExtractorTests.swift    7 tests: meeting-link extraction
+  EventLogicTests.swift            30 tests: countdown / all-day / selection
+  EventLinkExtractorTests.swift    10 tests: meeting-link extraction, authuser rewrite
 ```
 
 ## Notes on interpretation
