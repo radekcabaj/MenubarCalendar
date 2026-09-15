@@ -15,6 +15,9 @@ final class CalendarViewModel: ObservableObject {
     @Published var accessDenied: Bool = false
     /// All event calendars, for the settings picker.
     @Published private(set) var availableCalendars: [CalendarInfo] = []
+    /// Account emails seen across the visible events and calendars, so Settings
+    /// can offer a Chrome profile per account.
+    @Published private(set) var accountEmails: [String] = []
     /// The event currently shown in the menu bar (target of the meeting hot key).
     @Published private(set) var selectedEvent: CalendarEvent?
 
@@ -134,6 +137,7 @@ final class CalendarViewModel: ObservableObject {
         accessDenied = true
         sections = []
         availableCalendars = []
+        accountEmails = []
         selectedEvent = nil
         eventsByRowID = [:]
         meetingByRowID = [:]
@@ -166,12 +170,21 @@ final class CalendarViewModel: ObservableObject {
         availableCalendars = allCalendars.map {
             CalendarInfo(id: $0.calendarIdentifier, title: $0.title, color: color(for: $0))
         }
+        // Seed the account list from the calendars themselves, so an account
+        // with no upcoming meeting is still configurable in Settings.
+        var accounts = Set<String>()
+        for calendar in allCalendars {
+            for candidate in [calendar.source.title, calendar.title] where candidate.contains("@") {
+                accounts.insert(candidate)
+            }
+        }
 
         let selected = allCalendars.filter { settings.isSelected($0.calendarIdentifier) }
         // Empty means the user deselected everything → show nothing (don't fall
         // back to querying all calendars).
         guard !selected.isEmpty else {
             sections = []
+            accountEmails = accounts.sorted()
             selectedEvent = nil
             eventsByRowID = [:]
             meetingByRowID = [:]
@@ -202,11 +215,13 @@ final class CalendarViewModel: ObservableObject {
                 notes: ek.notes,
                 accountEmail: accountEmail(for: ek)
             )
+            if let email = event.accountEmail { accounts.insert(email) }
             if let url = EventLinkExtractor.meetingURL(for: event) {
                 meetingMap[id] = (url, event.accountEmail)
             }
             return event
         }
+        accountEmails = accounts.sorted()
         eventsByRowID = byRowID
         meetingByRowID = meetingMap
 
@@ -297,11 +312,19 @@ final class CalendarViewModel: ObservableObject {
         openMeetingURL(meeting.url, accountEmail: meeting.accountEmail)
     }
 
-    /// Open in the system default browser. Google links first get `authuser`
-    /// set to the event's own account, so they land on the right identity when
-    /// the browser is signed into several.
+    /// Open in Chrome, pinned to the profile that owns the event's account, so a
+    /// work meeting lands in the work profile rather than whichever profile
+    /// Chrome happened to use last. Google links additionally get
+    /// `authuser=<email>` to pick the right identity *inside* that profile.
+    /// Falls back to the default browser only when Chrome can't be launched.
     private func openMeetingURL(_ url: URL, accountEmail: String?) {
         let finalURL = accountEmail.map { EventLinkExtractor.accountURL(url, authuserEmail: $0) } ?? url
+        let directory = accountEmail.flatMap {
+            ChromeProfileResolver.profileDirectory(
+                forEmail: $0, overrides: settings.chromeProfileOverrides
+            )
+        }
+        if ChromeProfileResolver.open(finalURL, profileDirectory: directory) { return }
         NSWorkspace.shared.open(finalURL)
     }
 
