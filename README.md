@@ -51,22 +51,35 @@ Zoom / Teams / …). If the event has no link, the Calendar app opens instead.
 Implemented with Carbon `RegisterEventHotKey` — works globally with **no**
 Accessibility permission and no third-party dependency.
 
-### Opening in the right browser and Google account
+### Opening in the right Chrome profile and Google account
 
-Meeting links always open in the **system default browser** — whatever you've
-set in System Settings (Safari, Arc, Dia, Chrome, …). There is no browser
-setting in the app.
-
-For Google links (`*.google.com`, so Meet and Calendar included) the event's own
-account is pinned with `authuser=<email>`, so the link lands on the right
-identity when the browser is signed into several accounts:
+Meeting links always open in **Google Chrome**, in the profile that owns the
+event's account — so a work meeting lands in the work profile instead of
+whichever profile Chrome happened to use last:
 
 1. The event's account is taken from the "current user" attendee's address, or
    the calendar's account / title when it's an email (e.g. `radek@tonik.com`).
-2. `authuser=<email>` is added to the URL (replacing any existing value).
+2. That email is matched to a Chrome profile — a profile pinned for the account
+   in Settings wins; otherwise the email is matched as a profile's **primary**
+   account, then as a **secondary** signed-in account (scanned from each
+   `<Profile>/Preferences`). Chrome is launched with `--profile-directory=<dir>`.
+3. For Google links (`*.google.com`, so Meet and Calendar included)
+   `authuser=<email>` is added to the URL (replacing any existing value), which
+   picks the right identity *inside* a multi-account profile.
 
-Non-Google links open untouched, as do events with no resolvable account. The
-`authuser` rewrite is a pure function in `EventLinkExtractor` and is unit-tested.
+Steps 2 and 3 are independent and both are needed: `authuser` can only choose
+between accounts already signed into the profile Chrome opens — it can never
+switch profiles.
+
+Settings → **Profil Chrome dla konta** lists every account and the profile it
+resolves to, so a wrong automatic match can be pinned by hand. A pin that points
+at a deleted profile falls back to automatic matching.
+
+If Chrome isn't installed or can't be launched, the link falls back to the
+system default browser. Everything is read from the user's own local Chrome
+data; the parsing and matching logic is a set of pure functions in
+`ChromeProfileResolver`, and the `authuser` rewrite lives in
+`EventLinkExtractor` — both unit-tested.
 
 On first launch the app requests **full calendar access**. If you deny it, the
 pop-over shows a message with a shortcut to System Settings → Privacy →
@@ -79,13 +92,14 @@ MenubarCalendar/
   MenubarCalendarApp.swift   @main + MenuBarExtra (.window style)
   CalendarViewModel.swift    EventKit store, 30s timer, published UI state, hot key
   EventListView.swift        Pop-over: event list, footer, animated expand
-  SettingsView.swift         All-day, launch-at-login, shortcut, calendar picker
+  SettingsView.swift         All-day, launch-at-login, shortcut, Chrome profiles, calendars
   ShortcutRecorder.swift     Click-to-record control for the meeting hot key
-  AppSettings.swift          UserDefaults: calendars, all-day, hot key
+  AppSettings.swift          UserDefaults: calendars, all-day, hot key, Chrome profile pins
   LoginItemManager.swift     SMAppService launch-at-login wrapper
   HotKeyManager.swift        Carbon global hot key (RegisterEventHotKey)
   EventLogic.swift           Pure selection/formatting logic (unit-tested)
   EventLinkExtractor.swift   Pure meeting-link extraction + `authuser` rewrite (unit-tested)
+  ChromeProfileResolver.swift  Account -> Chrome profile matching + launch (unit-tested)
   Models/
     CalendarEvent.swift      Value type decoupled from EventKit
     EventRow.swift           Pre-formatted list row
@@ -94,6 +108,7 @@ Config/
 MenubarCalendarTests/
   EventLogicTests.swift            30 tests: countdown / all-day / selection
   EventLinkExtractorTests.swift    10 tests: meeting-link extraction, authuser rewrite
+  ChromeProfileResolverTests.swift 14 tests: profile parsing, matching, pinned overrides
 ```
 
 ## Notes on interpretation

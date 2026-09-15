@@ -17,6 +17,7 @@ final class AppSettings: ObservableObject {
         static let hotKeyKeyCode = "hotKeyKeyCode"
         static let hotKeyModifierRaw = "hotKeyModifierRaw"
         static let hotKeyCharacter = "hotKeyCharacter"
+        static let chromeProfileOverrides = "chromeProfileOverrides"
     }
 
     private let defaults: UserDefaults
@@ -36,6 +37,12 @@ final class AppSettings: ObservableObject {
     @Published private(set) var hotKeyModifierRaw: UInt
     @Published private(set) var hotKeyCharacter: String
 
+    // MARK: Chrome profile per account
+
+    /// Chrome profile directory pinned per account email, e.g.
+    /// `["radek@tonik.com": "Default"]`. Accounts with no entry are matched
+    /// automatically against the profiles Chrome has signed in.
+    @Published private(set) var chromeProfileOverrides: [String: String]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -60,6 +67,27 @@ final class AppSettings: ObservableObject {
             self.hotKeyModifierRaw = NSEvent.ModifierFlags([.control, .option, .command]).rawValue
         }
         self.hotKeyCharacter = defaults.string(forKey: Keys.hotKeyCharacter) ?? "M"
+        self.chromeProfileOverrides =
+            defaults.dictionary(forKey: Keys.chromeProfileOverrides) as? [String: String] ?? [:]
+    }
+
+    /// The profile pinned for `email`, if any. Nil means "match automatically".
+    func chromeProfileOverride(forEmail email: String) -> String? {
+        chromeProfileOverrides.first { $0.key.lowercased() == email.lowercased() }?.value
+    }
+
+    /// Pin `email` to a Chrome profile directory. Passing nil clears the pin and
+    /// returns the account to automatic matching.
+    func setChromeProfileOverride(_ directory: String?, forEmail email: String) {
+        var map = chromeProfileOverrides
+        for key in map.keys where key.lowercased() == email.lowercased() {
+            map.removeValue(forKey: key)
+        }
+        if let directory, !directory.isEmpty {
+            map[email] = directory
+        }
+        chromeProfileOverrides = map
+        defaults.set(map, forKey: Keys.chromeProfileOverrides)
     }
 
     /// The current hot key as modifier flags.

@@ -9,6 +9,9 @@ struct SettingsView: View {
     @EnvironmentObject private var google: GoogleCalendarService
     let onBack: () -> Void
 
+    /// Chrome profiles read from disk when the screen appears.
+    @State private var chromeProfiles: [ChromeProfile] = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -20,6 +23,8 @@ struct SettingsView: View {
                     generalSection
                     Divider()
                     shortcutSection
+                    Divider()
+                    chromeSection
                     Divider()
                     calendarsSection
                 }
@@ -83,7 +88,7 @@ struct SettingsView: View {
             .disabled(!settings.hotKeyEnabled)
             .opacity(settings.hotKeyEnabled ? 1 : 0.5)
 
-            Text("Otwiera link do spotkania z wydarzenia w pasku menu — w domyślnej przeglądarce systemu. Linki Google otwierają się na koncie, do którego należy wydarzenie. Gdy brak linku — otwiera aplikację Kalendarz.")
+            Text("Otwiera link do spotkania z wydarzenia w pasku menu — w Chrome, w profilu przypisanym do konta wydarzenia. Gdy brak linku — otwiera aplikację Kalendarz.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -140,6 +145,68 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var chromeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Profil Chrome dla konta")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if chromeProfiles.isEmpty {
+                Text("Nie znaleziono profili Chrome. Linki otworzą się w domyślnej przeglądarce.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if viewModel.accountEmails.isEmpty {
+                Text("Brak kont do przypisania.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(viewModel.accountEmails, id: \.self) { email in
+                    HStack(spacing: 8) {
+                        Text(email)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Picker("", selection: chromeProfileBinding(for: email)) {
+                            Text(automaticLabel(for: email)).tag("")
+                            ForEach(chromeProfiles, id: \.directory) { profile in
+                                Text(profile.displayName).tag(profile.directory)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 170)
+                    }
+                }
+
+                Text("Spotkanie otwiera się w profilu Chrome, do którego zalogowane jest konto wydarzenia. Wybierz profil ręcznie, jeśli dopasowanie jest błędne.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .onAppear { chromeProfiles = ChromeProfileResolver.loadProfiles() }
+    }
+
+    /// Reads/writes the pinned profile for one account. Empty tag == automatic.
+    private func chromeProfileBinding(for email: String) -> Binding<String> {
+        Binding(
+            get: { settings.chromeProfileOverride(forEmail: email) ?? "" },
+            set: { settings.setChromeProfileOverride($0.isEmpty ? nil : $0, forEmail: email) }
+        )
+    }
+
+    /// Names the profile automatic matching would pick, so the default option
+    /// shows what it actually resolves to.
+    private func automaticLabel(for email: String) -> String {
+        guard
+            let directory = ChromeProfileResolver.resolveProfileDirectory(
+                forEmail: email, profiles: chromeProfiles
+            ),
+            let profile = chromeProfiles.first(where: { $0.directory == directory })
+        else { return "Automatycznie" }
+        return "Automatycznie (\(profile.displayName))"
     }
 
     private var calendarsSection: some View {
