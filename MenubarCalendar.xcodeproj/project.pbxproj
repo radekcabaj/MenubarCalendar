@@ -19,11 +19,13 @@
 		AAAA0000000000000000002E /* EventLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000002F /* EventLogic.swift */; };
 		AAAA00000000000000000030 /* EventLinkExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000031 /* EventLinkExtractor.swift */; };
 		AAAA00000000000000000032 /* ChromeProfileResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000033 /* ChromeProfileResolver.swift */; };
+		AAAA00000000000000000040 /* ChromeSingleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000041 /* ChromeSingleton.swift */; };
 		AAAA00000000000000000034 /* CalendarEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000035 /* CalendarEvent.swift */; };
 		AAAA00000000000000000036 /* EventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000037 /* EventRow.swift */; };
 		AAAA00000000000000000038 /* EventLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000039 /* EventLogicTests.swift */; };
 		AAAA0000000000000000003A /* EventLinkExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000003B /* EventLinkExtractorTests.swift */; };
 		AAAA0000000000000000003C /* ChromeProfileResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000003D /* ChromeProfileResolverTests.swift */; };
+		AAAA0000000000000000003E /* ChromeSingletonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000003F /* ChromeSingletonTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,11 +54,13 @@
 		AAAA0000000000000000002F /* EventLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLogic.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000031 /* EventLinkExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLinkExtractor.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000033 /* ChromeProfileResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeProfileResolver.swift; sourceTree = "<group>"; };
+		AAAA00000000000000000041 /* ChromeSingleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeSingleton.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000035 /* CalendarEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEvent.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000037 /* EventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventRow.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000039 /* EventLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLogicTests.swift; sourceTree = "<group>"; };
 		AAAA0000000000000000003B /* EventLinkExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventLinkExtractorTests.swift; sourceTree = "<group>"; };
 		AAAA0000000000000000003D /* ChromeProfileResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeProfileResolverTests.swift; sourceTree = "<group>"; };
+		AAAA0000000000000000003F /* ChromeSingletonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromeSingletonTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +106,7 @@
 				AAAA0000000000000000002F /* EventLogic.swift */,
 				AAAA00000000000000000031 /* EventLinkExtractor.swift */,
 				AAAA00000000000000000033 /* ChromeProfileResolver.swift */,
+				AAAA00000000000000000041 /* ChromeSingleton.swift */,
 				AAAA00000000000000000004 /* Models */,
 			);
 			path = MenubarCalendar;
@@ -122,6 +127,7 @@
 				AAAA00000000000000000039 /* EventLogicTests.swift */,
 				AAAA0000000000000000003B /* EventLinkExtractorTests.swift */,
 				AAAA0000000000000000003D /* ChromeProfileResolverTests.swift */,
+				AAAA0000000000000000003F /* ChromeSingletonTests.swift */,
 			);
 			path = MenubarCalendarTests;
 			sourceTree = "<group>";
@@ -253,6 +259,7 @@
 				AAAA0000000000000000002E /* EventLogic.swift in Sources */,
 				AAAA00000000000000000030 /* EventLinkExtractor.swift in Sources */,
 				AAAA00000000000000000032 /* ChromeProfileResolver.swift in Sources */,
+				AAAA00000000000000000040 /* ChromeSingleton.swift in Sources */,
 				AAAA00000000000000000034 /* CalendarEvent.swift in Sources */,
 				AAAA00000000000000000036 /* EventRow.swift in Sources */,
 			);
@@ -265,6 +272,7 @@
 				AAAA00000000000000000038 /* EventLogicTests.swift in Sources */,
 				AAAA0000000000000000003A /* EventLinkExtractorTests.swift in Sources */,
 				AAAA0000000000000000003C /* ChromeProfileResolverTests.swift in Sources */,
+				AAAA0000000000000000003E /* ChromeSingletonTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

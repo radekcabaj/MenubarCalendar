@@ -149,4 +149,30 @@ final class ChromeProfileResolverTests: XCTestCase {
             "Profile 1"
         )
     }
+
+    // MARK: - Command line
+
+    /// The same argv goes to the singleton socket and to a cold launch, so the
+    /// profile lands the same way whether Chrome is running or not.
+    func testArgumentsPinTheProfile() {
+        XCTAssertEqual(
+            ChromeProfileResolver.arguments(
+                executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                url: URL(string: "https://meet.google.com/abc?authuser=radek@tonik.com")!,
+                profileDirectory: "Profile 1"
+            ),
+            ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+             "--profile-directory=Profile 1",
+             "https://meet.google.com/abc?authuser=radek@tonik.com"]
+        )
+    }
+
+    func testArgumentsWithoutAProfileLeaveChromeToPick() {
+        XCTAssertEqual(
+            ChromeProfileResolver.arguments(
+                executablePath: "/chrome", url: URL(string: "https://example.com")!, profileDirectory: nil
+            ),
+            ["/chrome", "https://example.com"]
+        )
+    }
 }

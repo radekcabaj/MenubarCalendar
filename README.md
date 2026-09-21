@@ -62,7 +62,7 @@ whichever profile Chrome happened to use last:
 2. That email is matched to a Chrome profile — a profile pinned for the account
    in Settings wins; otherwise the email is matched as a profile's **primary**
    account, then as a **secondary** signed-in account (scanned from each
-   `<Profile>/Preferences`). Chrome is launched with `--profile-directory=<dir>`.
+   `<Profile>/Preferences`). The link is opened with `--profile-directory=<dir>`.
 3. For Google links (`*.google.com`, so Meet and Calendar included)
    `authuser=<email>` is added to the URL (replacing any existing value), which
    picks the right identity *inside* a multi-account profile.
@@ -74,6 +74,15 @@ switch profiles.
 Settings → **Profil Chrome dla konta** lists every account and the profile it
 resolves to, so a wrong automatic match can be pinned by hand. A pin that points
 at a deleted profile falls back to automatic matching.
+
+When Chrome is already running, that command line is handed to it over its
+**process-singleton socket** (`SingletonSocket` in the user-data directory)
+instead of by starting a second Chrome process. Both routes end up in the same
+browser — starting a process only forwards its arguments and exits — but macOS
+counts the short-lived process as an app launch and the Dock then keeps a second
+"Google Chrome" tile in its recent-apps list next to the pinned one. Starting
+Chrome is kept for the cold-start case, where that process *becomes* the
+browser. See `ChromeSingleton`.
 
 If Chrome isn't installed or can't be launched, the link falls back to the
 system default browser. Everything is read from the user's own local Chrome
@@ -99,7 +108,8 @@ MenubarCalendar/
   HotKeyManager.swift        Carbon global hot key (RegisterEventHotKey)
   EventLogic.swift           Pure selection/formatting logic (unit-tested)
   EventLinkExtractor.swift   Pure meeting-link extraction + `authuser` rewrite (unit-tested)
-  ChromeProfileResolver.swift  Account -> Chrome profile matching + launch (unit-tested)
+  ChromeProfileResolver.swift  Account -> Chrome profile matching + opening (unit-tested)
+  ChromeSingleton.swift      Hands a command line to the running Chrome (unit-tested)
   Models/
     CalendarEvent.swift      Value type decoupled from EventKit
     EventRow.swift           Pre-formatted list row
@@ -108,7 +118,8 @@ Config/
 MenubarCalendarTests/
   EventLogicTests.swift            30 tests: countdown / all-day / selection
   EventLinkExtractorTests.swift    10 tests: meeting-link extraction, authuser rewrite
-  ChromeProfileResolverTests.swift 14 tests: profile parsing, matching, pinned overrides
+  ChromeProfileResolverTests.swift 16 tests: profile parsing, matching, pins, command line
+  ChromeSingletonTests.swift        7 tests: wire format, socket lookup, ACK / refusal
 ```
 
 ## Notes on interpretation
