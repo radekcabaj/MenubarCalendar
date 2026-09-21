@@ -144,17 +144,44 @@ enum ChromeProfileResolver {
         return app.appendingPathComponent("Contents/MacOS/Google Chrome")
     }
 
-    /// Launch `url` in Chrome. `profileDirectory` pins a specific profile; when
+    /// The command line that opens `url`, optionally pinned to a profile.
+    static func arguments(
+        executablePath: String, url: URL, profileDirectory: String?
+    ) -> [String] {
+        var arguments = [executablePath]
+        if let profileDirectory, !profileDirectory.isEmpty {
+            arguments.append("--profile-directory=\(profileDirectory)")
+        }
+        arguments.append(url.absoluteString)
+        return arguments
+    }
+
+    /// Open `url` in Chrome. `profileDirectory` pins a specific profile; when
     /// nil, Chrome uses whichever profile it opened last. `url` is expected to
     /// already carry any `authuser` rewrite. Returns false if Chrome isn't
-    /// installed or couldn't be launched, so the caller can fall back.
+    /// installed or couldn't be reached, so the caller can fall back.
+    ///
+    /// A running Chrome is handed the command line over its singleton socket
+    /// rather than by starting a second process: both end up in the same
+    /// browser, but spawning one makes macOS add a duplicate "Google Chrome"
+    /// tile to the Dock (see `ChromeSingleton`). Launching is the fallback —
+    /// for a cold start it *is* the right thing, and that instance becomes the
+    /// browser, so it leaves no stray tile either.
     @discardableResult
     static func open(_ url: URL, profileDirectory: String?) -> Bool {
         guard let executable = chromeExecutableURL() else { return false }
+        let arguments = arguments(
+            executablePath: executable.path, url: url, profileDirectory: profileDirectory
+        )
+
+        if let socketPath = ChromeSingleton.socketPath(inUserDataDirectory: chromeDirectory),
+           ChromeSingleton.send(arguments: arguments, socketPath: socketPath) {
+            return true
+        }
+
         let task = Process()
         task.executableURL = executable
-        task.arguments = profileDirectory.map { ["--profile-directory=\($0)"] } ?? []
-        task.arguments?.append(url.absoluteString)
+        task.arguments = Array(arguments.dropFirst()) // argv[0] is the binary itself
         do {
             try task.run()
             return true
