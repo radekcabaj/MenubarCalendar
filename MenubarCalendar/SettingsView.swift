@@ -11,6 +11,8 @@ struct SettingsView: View {
 
     /// Chrome profiles read from disk when the screen appears.
     @State private var chromeProfiles: [ChromeProfile] = []
+    /// Chrome's profile list couldn't be read — see `loadChromeProfiles`.
+    @State private var chromeProfilesUnreadable = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -153,7 +155,19 @@ struct SettingsView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if chromeProfiles.isEmpty {
+            if chromeProfilesUnreadable {
+                Text("macOS nie pozwala tej aplikacji czytać danych Chrome, więc nie wiadomo, do którego profilu należy konto — spotkanie otworzy się w profilu, który akurat jest na wierzchu. Włącz Pełny dostęp do dysku dla MenubarCalendar i uruchom ją ponownie.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Otwórz Pełny dostęp do dysku") {
+                    if let url = URL(string:
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .font(.caption)
+            } else if chromeProfiles.isEmpty {
                 Text("Nie znaleziono profili Chrome. Linki otworzą się w domyślnej przeglądarce.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -186,7 +200,21 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onAppear { chromeProfiles = ChromeProfileResolver.loadProfiles() }
+        .onAppear(perform: loadChromeProfiles)
+    }
+
+    /// A blocked read is not the same as "Chrome has no profiles": macOS denies
+    /// one app the other's data unless it has Full Disk Access, and silently, so
+    /// without saying it here the only symptom is meetings opening in the wrong
+    /// profile.
+    private func loadChromeProfiles() {
+        do {
+            chromeProfiles = try ChromeProfileResolver.loadProfiles()
+            chromeProfilesUnreadable = false
+        } catch {
+            chromeProfiles = []
+            chromeProfilesUnreadable = true
+        }
     }
 
     /// Reads/writes the pinned profile for one account. Empty tag == automatic.

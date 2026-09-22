@@ -90,6 +90,22 @@ data; the parsing and matching logic is a set of pure functions in
 `ChromeProfileResolver`, and the `authuser` rewrite lives in
 `EventLinkExtractor` — both unit-tested.
 
+### Full Disk Access is required for profile matching
+
+Matching an account to a profile means reading Chrome's own `Local State` and
+`<Profile>/Preferences`, and macOS guards one app's data against another
+(`kTCCServiceSystemPolicyAppData`). Without **Full Disk Access** that read fails
+with `EPERM` — silently, with no permission prompt — so no profile is found, the
+command line goes to Chrome without `--profile-directory`, and the meeting opens
+in whichever profile happens to be in front. Grant it in System Settings →
+Privacy & Security → **Full Disk Access** and restart the app; Settings says so
+too, with a button, when the read is blocked. The grant is tied to the app's code
+signature, so re-installing a build signed differently (ad-hoc vs. your team)
+invalidates it — remove the stale entry and add the app again.
+
+A profile pinned by hand still applies when the list can't be read — it is the
+only mapping left at that point.
+
 On first launch the app requests **full calendar access**. If you deny it, the
 pop-over shows a message with a shortcut to System Settings → Privacy →
 Calendars.
