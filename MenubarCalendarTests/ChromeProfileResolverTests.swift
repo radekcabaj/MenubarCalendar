@@ -137,6 +137,21 @@ final class ChromeProfileResolverTests: XCTestCase {
         )
     }
 
+    /// When macOS blocks reading Chrome's user-data directory, the profile list
+    /// comes back empty. A pin the user made by hand is then the only mapping we
+    /// have, so it has to survive — checking it against a list we never managed
+    /// to read would drop the meeting into whichever profile is in front.
+    func testOverrideSurvivesAnUnreadableProfileList() {
+        XCTAssertEqual(
+            ChromeProfileResolver.resolveProfileDirectory(
+                forEmail: "radek@tonik.com",
+                profiles: [],
+                overrides: ["radek@tonik.com": "Default"]
+            ),
+            "Default"
+        )
+    }
+
     func testOverrideCanResolveAnAccountInNoProfile() {
         // An account Chrome doesn't know about is unresolvable automatically,
         // but a pinned profile still gives it a home.

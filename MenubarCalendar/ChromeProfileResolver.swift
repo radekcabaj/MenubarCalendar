@@ -90,7 +90,10 @@ enum ChromeProfileResolver {
     ///
     /// `overrides` maps an account email to a profile directory. An override
     /// pointing at a profile that no longer exists is ignored, so deleting a
-    /// Chrome profile falls back to automatic matching instead of failing.
+    /// Chrome profile falls back to automatic matching instead of failing —
+    /// but only when the list is genuinely known. An empty list means we never
+    /// read Chrome's user-data directory (macOS can deny it), and there a pin
+    /// is the only mapping we have, so it stands.
     static func resolveProfileDirectory(
         forEmail email: String,
         profiles: [ChromeProfile],
@@ -98,7 +101,7 @@ enum ChromeProfileResolver {
     ) -> String? {
         let target = email.lowercased()
         let pinned = overrides.first { $0.key.lowercased() == target }?.value
-        if let pinned, profiles.contains(where: { $0.directory == pinned }) {
+        if let pinned, profiles.isEmpty || profiles.contains(where: { $0.directory == pinned }) {
             return pinned
         }
         if let primary = profiles.first(where: { $0.primaryEmail?.lowercased() == target }) {
@@ -112,8 +115,16 @@ enum ChromeProfileResolver {
 
     // MARK: - Disk + launch (side-effecting)
 
-    static func loadProfiles() -> [ChromeProfile] {
-        guard let stateData = try? Data(contentsOf: localStateURL) else { return [] }
+    /// Chrome's profiles, read from disk.
+    ///
+    /// Throws when `Local State` can't be read. That is not exotic: macOS
+    /// guards one app's data against another (`kTCCServiceSystemPolicyAppData`)
+    /// and denies the read with `EPERM` — silently, with no prompt — unless the
+    /// app has Full Disk Access. Callers must not quietly treat that as "Chrome
+    /// has no profiles", or every meeting lands in whichever profile is in
+    /// front.
+    static func loadProfiles() throws -> [ChromeProfile] {
+        let stateData = try Data(contentsOf: localStateURL)
         let names = displayNames(fromLocalState: stateData)
         return primaryEmails(fromLocalState: stateData).map { directory, primary in
             let prefsURL = chromeDirectory
@@ -134,7 +145,9 @@ enum ChromeProfileResolver {
     }
 
     static func profileDirectory(forEmail email: String, overrides: [String: String] = [:]) -> String? {
-        resolveProfileDirectory(forEmail: email, profiles: loadProfiles(), overrides: overrides)
+        resolveProfileDirectory(
+            forEmail: email, profiles: (try? loadProfiles()) ?? [], overrides: overrides
+        )
     }
 
     static func chromeExecutableURL() -> URL? {
