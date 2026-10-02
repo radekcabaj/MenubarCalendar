@@ -1,11 +1,20 @@
 import AppKit
 import Foundation
 
+/// Where events come from — one per install, never both at once (spec
+/// 2026-10-02). `.google` polls the Google Calendar API directly; `.eventKit`
+/// reads whatever accounts macOS's Calendar database has.
+enum DataSource: String, CaseIterable {
+    case google
+    case eventKit
+}
+
 /// Persistent user settings backed by `UserDefaults` (PRD §3.5, §3.4).
 ///
-/// `selectedCalendarIDs == nil` means "all calendars" — the first-run default.
-/// Once the user touches the calendar list the concrete set is materialised and
-/// stored, so an empty set correctly means "nothing selected" rather than "all".
+/// `selectedCalendarIDs` / `selectedGoogleCalendarIDs == nil` means "defaults"
+/// — the first-run default for that source. Once the user touches the calendar
+/// list, the concrete set is materialised and stored, so an empty set correctly
+/// means "nothing selected" rather than "all".
 /// Launch-at-login is intentionally *not* stored here: `SMAppService` is the
 /// source of truth for that (see `LoginItemManager`).
 @MainActor
@@ -18,11 +27,21 @@ final class AppSettings: ObservableObject {
         static let hotKeyModifierRaw = "hotKeyModifierRaw"
         static let hotKeyCharacter = "hotKeyCharacter"
         static let chromeProfileOverrides = "chromeProfileOverrides"
+        static let dataSource = "dataSource"
+        static let selectedGoogleCalendarIDs = "selectedGoogleCalendarIDs"
     }
 
     private let defaults: UserDefaults
 
     @Published private(set) var selectedCalendarIDs: Set<String>?
+
+    /// Like `selectedCalendarIDs`, for Google calendars (`"<email>/<calendarId>"`).
+    /// `nil` means "use each calendar's default" (its Google-side selection).
+    @Published private(set) var selectedGoogleCalendarIDs: Set<String>?
+
+    @Published var dataSource: DataSource {
+        didSet { defaults.set(dataSource.rawValue, forKey: Keys.dataSource) }
+    }
 
     @Published var showAllDay: Bool {
         didSet { defaults.set(showAllDay, forKey: Keys.showAllDay) }
@@ -44,7 +63,10 @@ final class AppSettings: ObservableObject {
     /// automatically against the profiles Chrome has signed in.
     @Published private(set) var chromeProfileOverrides: [String: String]
 
-    init(defaults: UserDefaults = .standard) {
+    /// `isExistingInstall` is true when this Mac already granted the app
+    /// calendar access — i.e. someone was using the EventKit source before the
+    /// switch existed. Only consulted the first time; the result is stored.
+    init(defaults: UserDefaults = .standard, isExistingInstall: Bool = false) {
         self.defaults = defaults
 
         if let stored = defaults.array(forKey: Keys.selectedCalendarIDs) as? [String] {
@@ -69,6 +91,21 @@ final class AppSettings: ObservableObject {
         self.hotKeyCharacter = defaults.string(forKey: Keys.hotKeyCharacter) ?? "M"
         self.chromeProfileOverrides =
             defaults.dictionary(forKey: Keys.chromeProfileOverrides) as? [String: String] ?? [:]
+
+        if let stored = defaults.array(forKey: Keys.selectedGoogleCalendarIDs) as? [String] {
+            self.selectedGoogleCalendarIDs = Set(stored)
+        } else {
+            self.selectedGoogleCalendarIDs = nil
+        }
+
+        if let raw = defaults.string(forKey: Keys.dataSource), let stored = DataSource(rawValue: raw) {
+            self.dataSource = stored
+        } else {
+            let existing = isExistingInstall || defaults.object(forKey: Keys.selectedCalendarIDs) != nil
+            let initial: DataSource = existing ? .eventKit : .google
+            defaults.set(initial.rawValue, forKey: Keys.dataSource)
+            self.dataSource = initial
+        }
     }
 
     /// The profile pinned for `email`, if any. Nil means "match automatically".
@@ -115,21 +152,36 @@ final class AppSettings: ObservableObject {
         defaults.set(character, forKey: Keys.hotKeyCharacter)
     }
 
-    /// Whether a calendar is included in queries. Unknown / first-run → true.
-    func isSelected(_ id: String) -> Bool {
-        selectedCalendarIDs?.contains(id) ?? true
+    /// Whether a calendar is included. Before the user has touched that
+    /// source's list, `defaultValue` decides (true for EventKit; the calendar's
+    /// Google-side selection for Google).
+    func isSelected(_ id: String, in source: DataSource, default defaultValue: Bool = true) -> Bool {
+        selection(for: source)?.contains(id) ?? defaultValue
     }
 
-    /// Toggle a calendar. `allIDs` seeds the set on first change so that
-    /// deselecting one calendar keeps the rest selected.
-    func setSelected(_ id: String, selected: Bool, allIDs: [String]) {
-        var set = selectedCalendarIDs ?? Set(allIDs)
+    /// Toggle a calendar. `currentlySelected` seeds the set on the first change
+    /// so the rest of the list keeps its current state.
+    func setSelected(_ id: String, selected: Bool, in source: DataSource, currentlySelected: [String]) {
+        var set = selection(for: source) ?? Set(currentlySelected)
         if selected {
             set.insert(id)
         } else {
             set.remove(id)
         }
-        selectedCalendarIDs = set
-        defaults.set(Array(set), forKey: Keys.selectedCalendarIDs)
+        switch source {
+        case .eventKit:
+            selectedCalendarIDs = set
+            defaults.set(Array(set), forKey: Keys.selectedCalendarIDs)
+        case .google:
+            selectedGoogleCalendarIDs = set
+            defaults.set(Array(set), forKey: Keys.selectedGoogleCalendarIDs)
+        }
+    }
+
+    private func selection(for source: DataSource) -> Set<String>? {
+        switch source {
+        case .eventKit: selectedCalendarIDs
+        case .google: selectedGoogleCalendarIDs
+        }
     }
 }

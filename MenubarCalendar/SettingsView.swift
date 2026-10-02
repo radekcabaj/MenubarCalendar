@@ -250,12 +250,15 @@ struct SettingsView: View {
             } else {
                 ForEach(viewModel.availableCalendars) { calendar in
                     Toggle(isOn: Binding(
-                        get: { settings.isSelected(calendar.id) },
+                        get: { settings.isSelected(calendar.id, in: .eventKit) },
                         set: { newValue in
                             settings.setSelected(
                                 calendar.id,
                                 selected: newValue,
-                                allIDs: viewModel.availableCalendars.map(\.id)
+                                in: .eventKit,
+                                currentlySelected: viewModel.availableCalendars
+                                    .filter { settings.isSelected($0.id, in: .eventKit) }
+                                    .map(\.id)
                             )
                         }
                     )) {

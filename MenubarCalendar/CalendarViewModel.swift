@@ -179,7 +179,7 @@ final class CalendarViewModel: ObservableObject {
             }
         }
 
-        let selected = allCalendars.filter { settings.isSelected($0.calendarIdentifier) }
+        let selected = allCalendars.filter { settings.isSelected($0.calendarIdentifier, in: .eventKit) }
         // Empty means the user deselected everything → show nothing (don't fall
         // back to querying all calendars).
         guard !selected.isEmpty else {
