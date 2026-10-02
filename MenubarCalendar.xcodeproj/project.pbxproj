@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AAAA00000000000000000056 /* GoogleEventMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000057 /* GoogleEventMapperTests.swift */; };
+		AAAA00000000000000000054 /* GoogleEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000055 /* GoogleEventMapper.swift */; };
 		AAAA00000000000000000052 /* AppSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000053 /* AppSettingsTests.swift */; };
 		AAAA0000000000000000001E /* MenubarCalendarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000001F /* MenubarCalendarApp.swift */; };
 		AAAA00000000000000000020 /* CalendarViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000021 /* CalendarViewModel.swift */; };
@@ -40,6 +42,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAAA00000000000000000057 /* GoogleEventMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleEventMapperTests.swift; sourceTree = "<group>"; };
+		AAAA00000000000000000055 /* GoogleEventMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleEventMapper.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000053 /* AppSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsTests.swift; sourceTree = "<group>"; };
 		AAAA0000000000000000000A /* MenubarCalendar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MenubarCalendar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAAA0000000000000000000B /* MenubarCalendarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MenubarCalendarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -96,6 +100,7 @@
 		AAAA00000000000000000003 /* MenubarCalendar */ = {
 			isa = PBXGroup;
 			children = (
+				AAAA00000000000000000055 /* GoogleEventMapper.swift */,
 				AAAA0000000000000000001F /* MenubarCalendarApp.swift */,
 				AAAA00000000000000000021 /* CalendarViewModel.swift */,
 				AAAA00000000000000000023 /* EventListView.swift */,
@@ -126,6 +131,7 @@
 		AAAA00000000000000000005 /* MenubarCalendarTests */ = {
 			isa = PBXGroup;
 			children = (
+				AAAA00000000000000000057 /* GoogleEventMapperTests.swift */,
 				AAAA00000000000000000053 /* AppSettingsTests.swift */,
 				AAAA00000000000000000039 /* EventLogicTests.swift */,
 				AAAA0000000000000000003B /* EventLinkExtractorTests.swift */,
@@ -250,6 +256,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAAA00000000000000000054 /* GoogleEventMapper.swift in Sources */,
 				AAAA0000000000000000001E /* MenubarCalendarApp.swift in Sources */,
 				AAAA00000000000000000020 /* CalendarViewModel.swift in Sources */,
 				AAAA00000000000000000022 /* EventListView.swift in Sources */,
@@ -272,6 +279,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAAA00000000000000000056 /* GoogleEventMapperTests.swift in Sources */,
 				AAAA00000000000000000052 /* AppSettingsTests.swift in Sources */,
 				AAAA00000000000000000038 /* EventLogicTests.swift in Sources */,
 				AAAA0000000000000000003A /* EventLinkExtractorTests.swift in Sources */,
