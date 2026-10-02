@@ -144,13 +144,15 @@ struct EventListView: View {
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if row.isEditable {
+                                if row.canDecline {
                                     Button {
                                         withAnimation(.snappy(duration: 0.25)) { pendingDecline = row }
                                     } label: {
                                         Image(systemName: "calendar.badge.minus")
                                     }
                                     .tint(.red)
+                                }
+                                if row.isEditable {
                                     Button {
                                         beginEditing(row)
                                     } label: {
@@ -169,6 +171,8 @@ struct EventListView: View {
                                 }
                                 if row.isEditable {
                                     Button("Edit…") { beginEditing(row) }
+                                }
+                                if row.canDecline {
                                     Button("Decline…", role: .destructive) {
                                         withAnimation(.snappy(duration: 0.25)) { pendingDecline = row }
                                     }
