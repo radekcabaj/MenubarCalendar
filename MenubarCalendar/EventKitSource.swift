@@ -101,7 +101,7 @@ final class EventKitSource: EventSource {
         // back to querying all calendars, which `calendars: nil` would do).
         guard !selected.isEmpty else {
             eventsByID = [:]
-            return EventSnapshot(calendars: calendars, events: [], accountEmails: accounts.sorted(), status: .ok)
+            return EventSnapshot(calendars: calendars, events: [], accountEmails: accounts.sorted(), status: .nothingSelected)
         }
 
         let predicate = store.predicateForEvents(

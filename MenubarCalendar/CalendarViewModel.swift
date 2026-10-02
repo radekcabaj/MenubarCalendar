@@ -153,6 +153,7 @@ final class CalendarViewModel: ObservableObject {
         case .noAccess: menuBarTitle = "No access"
         case .notConnected: menuBarTitle = "Connect Google"
         case .needsReconnect: menuBarTitle = "Reconnect Google"
+        case .nothingSelected: menuBarTitle = "No events"
         case .loading, .ok: menuBarTitle = "…"
         }
     }
@@ -213,7 +214,6 @@ final class CalendarViewModel: ObservableObject {
         if ChromeProfileResolver.open(finalURL, profileDirectory: directory) { return }
         NSWorkspace.shared.open(finalURL)
     }
-
 
     // MARK: - Swipe actions (decline / edit)
 

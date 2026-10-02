@@ -22,6 +22,8 @@ enum SourceStatus: Equatable {
     case notConnected
     /// Google source whose every account must sign in again.
     case needsReconnect
+    /// The user unticked every calendar.
+    case nothingSelected
 }
 
 /// Everything `CalendarViewModel` renders, as last read from a source.
