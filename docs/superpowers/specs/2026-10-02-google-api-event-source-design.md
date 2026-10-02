@@ -65,7 +65,7 @@ struct EventSnapshot {
     var calendars: [CalendarInfo]      // all calendars, selected or not
     var events: [CalendarEvent]        // selected calendars, 7-day window, declined filtered out
     var accountEmails: [String]
-    var status: SourceStatus           // .ok, .noAccess, .notConnected, .partial([email])
+    var status: SourceStatus           // .ok, .loading, .noAccess, .notConnected, .needsReconnect
 }
 ```
 
@@ -142,11 +142,15 @@ not part of the protocol), else return `nil` / `false`.
 ### Settings (`AppSettings`, `SettingsView`)
 
 - `dataSource: DataSource` (`.google`, `.eventKit`), key `dataSource`. **Default
-  for existing installs: `.eventKit`** (nothing changes until the user switches);
-  for fresh installs (no `selectedCalendarIDs` stored): `.google`.
+  for existing installs: `.eventKit`** (nothing changes until the user switches).
+  An install counts as existing if macOS calendar access is already granted or
+  `selectedCalendarIDs` is stored. Otherwise the default is `.google`. The choice
+  is stored on first launch, so granting access later doesn't flip it.
 - Calendar selection is stored **per source**: `selectedCalendarIDs` (existing,
   EventKit) and `selectedGoogleCalendarIDs` (Google, ids
-  `"\(email)/\(calendarId)"`). `nil` still means "all selected".
+  `"\(email)/\(calendarId)"`). `nil` means "defaults": every EventKit calendar,
+  and for Google, the calendars ticked in Google Calendar's own sidebar
+  (`calendarList.selected`, with the primary calendar always on).
 - `SettingsView` (UI copy in Polish, matching the rest of the window):
   - "Źródło danych" picker: "Google (bezpośrednio)" / "Kalendarz macOS".
   - The Google section becomes an account list: email, "Połącz ponownie" when
