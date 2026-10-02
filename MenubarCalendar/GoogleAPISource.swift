@@ -103,6 +103,8 @@ final class GoogleAPISource: EventSource {
 
     func stop() {
         isRunning = false
+        refetchQueued = false
+        networkWasDown = false
         timer?.invalidate()
         timer = nil
         cancellables.removeAll()
@@ -119,6 +121,7 @@ final class GoogleAPISource: EventSource {
             refetchQueued = true
             return
         }
+        isFetching = true
         Task { await fetchAll() }
     }
 
@@ -130,7 +133,6 @@ final class GoogleAPISource: EventSource {
     // MARK: - Fetching
 
     private func fetchAll() async {
-        isFetching = true
         let window = Self.window(now: Date())
         let emails = accounts.accounts.filter { !$0.needsReconnect }.map(\.email)
         // Forget accounts that were removed or must reconnect.
@@ -192,7 +194,9 @@ final class GoogleAPISource: EventSource {
     private func pagedItems(_ url: URL, as email: String) async throws -> [[String: Any]] {
         var items: [[String: Any]] = []
         var pageToken: String?
+        var pages = 0
         repeat {
+            pages += 1
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
             if let pageToken {
                 components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "pageToken", value: pageToken)]
@@ -200,7 +204,10 @@ final class GoogleAPISource: EventSource {
             let json = try await accounts.getJSON(components.url!, as: email)
             items += json["items"] as? [[String: Any]] ?? []
             pageToken = json["nextPageToken"] as? String
-        } while pageToken != nil
+        } while pageToken != nil && pages < Self.maxPages
+        if pageToken != nil {
+            Diagnostics.log("google paging capped at \(Self.maxPages) pages for \(url.path)")
+        }
         return items
     }
 
@@ -272,6 +279,7 @@ final class GoogleAPISource: EventSource {
 
     // MARK: - Requests
 
+    private static let maxPages = 20
     static let calendarListURL = URL(string: "https://www.googleapis.com/calendar/v3/users/me/calendarList")!
 
     nonisolated static func window(now: Date, calendar: Calendar = .current) -> (start: Date, end: Date) {
