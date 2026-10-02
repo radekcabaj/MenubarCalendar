@@ -4,7 +4,15 @@ import XCTest
 /// Token storage double, so tests never touch the real Keychain.
 final class InMemoryVault: TokenVault {
     var items: [String: Data] = [:]
-    func save(_ data: Data, account: String) { items[account] = data }
+    func save(_ data: Data, account: String) -> Bool { items[account] = data; return true }
+    func load(account: String) -> Data? { items[account] }
+    func delete(account: String) { items[account] = nil }
+}
+
+/// A Keychain that refuses every write (locked, ACL mismatch…).
+final class ReadOnlyVault: TokenVault {
+    var items: [String: Data] = [:]
+    func save(_ data: Data, account: String) -> Bool { false }
     func load(account: String) -> Data? { items[account] }
     func delete(account: String) { items[account] = nil }
 }
@@ -41,12 +49,26 @@ final class GoogleAccountStoreTests: XCTestCase {
         XCTAssertTrue(store.hasUsableAccount)
     }
 
-    func testLegacyItemWithoutEmailIsDropped() {
+    // Without an email there is nothing to key it by; keep it rather than
+    // destroy the only copy of the token.
+    func testLegacyItemWithoutEmailIsKept() {
         let vault = InMemoryVault()
         vault.items["tokens"] = encoded(tokens(nil))
         let store = GoogleAccountStore(vault: vault, defaults: makeDefaults())
         XCTAssertTrue(store.accounts.isEmpty)
-        XCTAssertTrue(vault.items.isEmpty)
+        XCTAssertEqual(Array(vault.items.keys), ["tokens"])
+    }
+
+    func testLegacyItemIsKeptWhenTheNewItemCannotBeSaved() {
+        let vault = ReadOnlyVault()
+        vault.items["tokens"] = encoded(tokens("mail@radekcabaj.com"))
+        let defaults = makeDefaults()
+
+        let store = GoogleAccountStore(vault: vault, defaults: defaults)
+
+        XCTAssertTrue(store.accounts.isEmpty)
+        XCTAssertNotNil(vault.items["tokens"])
+        XCTAssertNil(defaults.stringArray(forKey: "googleAccountOrder"))
     }
 
     func testAccountsLoadInStoredOrderAndSkipMissingTokens() {
@@ -103,6 +125,19 @@ final class GoogleAccountStoreTests: XCTestCase {
         let when = Date(timeIntervalSince1970: 1_000)
         store.recordSync(email: "a@x.com", at: when)
         XCTAssertEqual(store.accounts[0].lastSync, when)
+    }
+
+    func testRecordFailureIsClearedByTheNextSync() {
+        let store = GoogleAccountStore(vault: InMemoryVault(), defaults: makeDefaults())
+        store.store(tokens("a@x.com"), for: "a@x.com")
+        store.store(tokens("b@x.com"), for: "b@x.com")
+
+        store.recordFailure(email: "a@x.com", message: "HTTP 500")
+        XCTAssertEqual(store.accounts[0].lastError, "HTTP 500")
+        XCTAssertNil(store.accounts[1].lastError)
+
+        store.recordSync(email: "a@x.com")
+        XCTAssertNil(store.accounts[0].lastError)
     }
 
     // MARK: Error classification

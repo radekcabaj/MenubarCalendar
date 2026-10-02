@@ -23,6 +23,11 @@ struct MappedGoogleEvent: Equatable {
     let calendarID: String
     /// Per-occurrence id (the API is queried with `singleEvents=true`).
     let eventID: String
+    /// The account whose token fetched it — every API call on it (decline)
+    /// goes through this account. Not necessarily the owner: a calendar shared
+    /// from another account is fetched through the account it's shared into,
+    /// while `event.accountEmail` names the owner for Chrome-profile routing.
+    let fetchedVia: String
     /// The account is listed as an attendee (`self == true`).
     let hasSelfAttendee: Bool
 }
@@ -77,20 +82,40 @@ enum GoogleEventMapper {
             url: meetingURL(from: json),
             location: json["location"] as? String,
             notes: json["description"] as? String,
-            accountEmail: calendar.accountEmail,
+            accountEmail: owner(selfAttendee: me, calendar: calendar),
             iCalUID: json["iCalUID"] as? String,
+            webURL: (json["htmlLink"] as? String).flatMap(URL.init(string:)),
             isEditable: false,
             canDecline: calendar.isWritable && me != nil
         )
         return MappedGoogleEvent(
-            event: event, calendarID: calendar.calendarID, eventID: eventID, hasSelfAttendee: me != nil
+            event: event, calendarID: calendar.calendarID, eventID: eventID,
+            fetchedVia: calendar.accountEmail, hasSelfAttendee: me != nil
         )
     }
 
+    /// The account an event belongs to: the `self` attendee (the owner of the
+    /// calendar it was read from), else the calendar's own address when it is
+    /// a person's calendar, else the account that fetched it (group calendars,
+    /// holidays…). A group calendar can itself be the `self` attendee; its
+    /// address is no account, so it falls through.
+    private static func owner(selfAttendee: [String: Any]?, calendar: GoogleCalendarEntry) -> String {
+        if let email = selfAttendee?["email"] as? String, isPersonalAddress(email) { return email }
+        if isPersonalAddress(calendar.calendarID) { return calendar.calendarID }
+        return calendar.accountEmail
+    }
+
+    /// A person's own calendar is identified by their address; group,
+    /// resource and imported calendars live under `*.calendar.google.com`.
+    private static func isPersonalAddress(_ value: String) -> Bool {
+        value.contains("@") && !value.lowercased().hasSuffix(".calendar.google.com")
+    }
+
     /// The same meeting can arrive through two accounts (invited on both, or a
-    /// calendar shared into both). Keep one copy per (iCalUID, start): the first
-    /// whose account is an attendee, else the first seen. Input order is
-    /// account connection order. Events without a UID are all kept.
+    /// calendar shared into both). Keep one copy per (iCalUID, start),
+    /// preferring the copy fetched by the account that owns it, then one whose
+    /// calendar is an attendee, else the first seen. Input order is account
+    /// connection order. Events without a UID are all kept.
     static func dedupe(_ events: [MappedGoogleEvent]) -> [MappedGoogleEvent] {
         var indexByKey: [String: Int] = [:]
         var result: [MappedGoogleEvent] = []
@@ -101,7 +126,7 @@ enum GoogleEventMapper {
             }
             let key = "\(uid)@\(item.event.startDate.timeIntervalSince1970)"
             if let index = indexByKey[key] {
-                if !result[index].hasSelfAttendee && item.hasSelfAttendee {
+                if rank(item) > rank(result[index]) {
                     result[index] = item
                 }
             } else {
@@ -110,6 +135,16 @@ enum GoogleEventMapper {
             }
         }
         return result
+    }
+
+    /// 2: read from a person's calendar by that person's own account; 1: read
+    /// through a calendar that is an attendee; 0: otherwise. A group calendar
+    /// doesn't count for 2 — its owner falls back to the fetching account,
+    /// which says nothing about who owns the event.
+    private static func rank(_ item: MappedGoogleEvent) -> Int {
+        if isPersonalAddress(item.calendarID),
+           item.event.accountEmail?.lowercased() == item.fetchedVia.lowercased() { return 2 }
+        return item.hasSelfAttendee ? 1 : 0
     }
 
     /// RFC 3339 in UTC, for `timeMin` / `timeMax`.

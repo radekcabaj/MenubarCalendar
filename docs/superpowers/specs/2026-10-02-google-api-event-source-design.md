@@ -97,16 +97,22 @@ Maps one Google event JSON + its account email + calendar id to `CalendarEvent?`
 - `url`: `hangoutLink`, else the `conferenceData.entryPoints` entry with
   `entryPointType == "video"`, else `nil`. `location` and `description` → `notes`
   (so `EventLinkExtractor` still finds Zoom/Teams links in text).
-- `accountEmail`: the account the event was fetched through.
-- `identifier`: `"\(accountEmail)/\(calendarId)/\(eventId)"` (event ids from
+- `accountEmail` (Chrome-profile / `authuser=` routing): the owner — the `self`
+  attendee's email, else the calendar id when it is a person's address (not
+  `*.calendar.google.com`), else the account the event was fetched through.
+  That fetching account is kept separately (`MappedGoogleEvent.fetchedVia`) and
+  every API call on the event (decline) goes through it.
+- `identifier`: `"\(fetchingAccount)/\(calendarId)/\(eventId)"` (event ids from
   `singleEvents=true` are already per-instance).
+- `webURL`: `htmlLink` — the hot key's fallback when there is no meeting link.
 - New `CalendarEvent` fields (defaulted, so EventKit mapping and existing tests
   don't change): `iCalUID: String?`, `isEditable: Bool = false`.
 
 **Duplicates across accounts.** The same meeting can show up through two accounts
 (e.g. invited on both, or a calendar shared into both). Dedupe by
-`(iCalUID, startDate)`; keep the copy whose self attendee exists, else the first
-account in connection order.
+`(iCalUID, startDate)`; keep the copy fetched by the account that owns it, then
+one with a self attendee, else the first account in connection order. A decline
+hides every cached copy with that `(iCalUID, startDate)`.
 
 ### `GoogleAccountStore` (replaces the single-account parts of `GoogleCalendarService`)
 
@@ -115,12 +121,14 @@ account in connection order.
   email. Connection order persisted in `UserDefaults`.
 - `addAccount()` runs the existing PKCE / `ASWebAuthenticationSession` flow;
   `remove(email:)`; `validAccessToken(for:)` with per-account refresh.
-- Scopes: the existing ones plus `calendar.readonly`
-  (`calendar.events` + `calendar.calendarlist.readonly` + `calendar.readonly`).
+- Scopes: unchanged — `calendar.events` + `calendar.calendarlist.readonly`.
+  `calendar.events` already permits `events.list` on every calendar the account
+  can see, so no `calendar.readonly` is needed.
 - **Migration:** on first launch, the legacy item (account `"tokens"`) is
-  re-saved under its email and deleted. Its token lacks `calendar.readonly`, so
-  the first 403 on a read marks it `needsReconnect` (shown in Settings) instead
-  of silently disconnecting.
+  re-saved under its email; the legacy item is deleted only once the new item
+  is confirmed written. A legacy item without an email (or one that can't be
+  re-saved) is left in place. Its scopes already cover the Google source, so
+  it keeps working without a reconnect.
 - A refresh failure / 401 / 403 marks only that account `needsReconnect`; other
   accounts keep syncing (`SourceStatus.partial`).
 - Decline (`declineEvent(iCalUID:)`) moves here and takes an account email; the
@@ -167,6 +175,9 @@ not part of the protocol), else return `nil` / `false`.
   pop-over shows a button that opens Settings.
 - All accounts `needsReconnect`: same as no accounts, but the copy says
   reconnect.
+- Every fetch failed and nothing is cached: status `.unavailable` — menu bar
+  `"Offline"`, the pop-over says it can't reach Google Calendar (not "all caught
+  up"); Settings shows "Błąd synchronizacji: <reason>" per failing account.
 - HTTP 429 / 5xx: skip this poll and back off (next poll after 2× the interval,
   capped at 10 min, reset on success).
 - Decline failure in Google mode: beep and surface `errorMessage`. No local

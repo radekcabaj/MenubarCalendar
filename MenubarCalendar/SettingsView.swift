@@ -150,7 +150,9 @@ struct SettingsView: View {
                         }
                         Spacer(minLength: 8)
                         if account.needsReconnect {
-                            Button("Połącz ponownie") { Task { await google.addAccount() } }
+                            Button("Połącz ponownie") {
+                                Task { await google.addAccount(loginHint: account.email) }
+                            }
                                 .disabled(google.isBusy)
                         }
                         Button("Usuń") { google.remove(email: account.email) }
@@ -168,7 +170,9 @@ struct SettingsView: View {
                 }
                 .disabled(google.isBusy)
 
-                Text("Odrzucenie wydarzenia przez połączone konto powiadomi organizatora (także dla kalendarzy udostępnionych z prawem edycji). Bez konta odrzucenie tylko usuwa wydarzenie z Twojego widoku.")
+                Text(settings.dataSource == .google
+                     ? "Odrzucenie wydarzenia powiadomi organizatora — przez konto, do którego należy wydarzenie."
+                     : "Odrzucenie wydarzenia przez połączone konto powiadomi organizatora (także dla kalendarzy udostępnionych z prawem edycji). Bez konta odrzucenie tylko usuwa wydarzenie z Twojego widoku.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -185,6 +189,7 @@ struct SettingsView: View {
 
     private func accountCaption(_ account: GoogleAccount) -> String? {
         if account.needsReconnect { return "Wymaga ponownego połączenia" }
+        if let error = account.lastError { return "Błąd synchronizacji: \(error)" }
         guard let lastSync = account.lastSync else { return nil }
         return "Ostatnia synchronizacja: \(lastSync.formatted(date: .omitted, time: .shortened))"
     }

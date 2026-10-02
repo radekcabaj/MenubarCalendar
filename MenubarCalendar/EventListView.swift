@@ -80,6 +80,11 @@ struct EventListView: View {
                 onOpenSettings: { withAnimation(nav) { showingSettings = true } }
             )
             .padding(16)
+        } else if viewModel.sourceStatus == .loading {
+            loadingState
+        } else if viewModel.sourceStatus == .unavailable {
+            UnavailableView(onOpenSettings: { withAnimation(nav) { showingSettings = true } })
+                .padding(16)
         } else if viewModel.sections.isEmpty {
             emptyState
         } else {
@@ -97,6 +102,17 @@ struct EventListView: View {
             Text("You're all caught up.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 36)
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Loading…")
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 36)
@@ -566,6 +582,25 @@ struct ConnectGoogleView: View {
             Text(needsReconnect
                  ? "Google needs you to sign in again before events can be fetched."
                  : "Events come straight from Google Calendar. Add an account in Settings, or switch the data source to macOS Calendar.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Settings", action: onOpenSettings)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Shown in Google mode when fetches ran but nothing could be loaded — so the
+/// pop-over doesn't claim "all caught up" while offline.
+struct UnavailableView: View {
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Can't reach Google Calendar", systemImage: "wifi.exclamationmark")
+                .font(.headline)
+            Text("Events will appear as soon as a sync succeeds. It retries automatically.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

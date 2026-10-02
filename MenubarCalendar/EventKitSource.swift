@@ -143,12 +143,14 @@ final class EventKitSource: EventSource {
     /// RSVP through whichever account holds a writable copy, then hide the
     /// event. One account's API error doesn't stop the others being tried; if
     /// none succeeds and any failed, the last error is thrown and nothing is
-    /// removed, so the user isn't left hidden-but-still-attending. If every
-    /// account answered "not found" (or Google isn't usable), the local copy is
-    /// removed instead, which does *not* reliably notify the organizer.
+    /// removed, so the user isn't left hidden-but-still-attending. If no usable
+    /// account found it but some account needs reconnecting, that one may own
+    /// the event: a reconnect error is thrown, again removing nothing. Only if
+    /// every account answered "not found" (or none is connected) is the local
+    /// copy removed instead, which does *not* reliably notify the organizer.
     func decline(eventID: String) async throws -> DeclineOutcome {
         guard let event = eventsByID[eventID] else { return .notApplicable }
-        if google.hasUsableAccount, let uid = event.calendarItemExternalIdentifier, !uid.isEmpty {
+        if let uid = event.calendarItemExternalIdentifier, !uid.isEmpty, !google.accounts.isEmpty {
             var lastError: Error?
             for account in google.accounts where !account.needsReconnect {
                 do {
@@ -165,6 +167,10 @@ final class EventKitSource: EventSource {
             // An API failure must not fall through to a local remove: that would
             // hide the event while the user still shows as attending.
             if let lastError { throw lastError }
+            if google.accounts.contains(where: \.needsReconnect) {
+                Diagnostics.log("google decline: not found on usable accounts; another needs reconnecting")
+                throw URLError(.userAuthenticationRequired)
+            }
             Diagnostics.log("google decline: event not found on a writable calendar, falling back")
         }
         do {

@@ -48,6 +48,9 @@ final class GoogleAPISource: EventSource {
     private var eventsByID: [String: MappedGoogleEvent] = [:]
     private var schedule = PollSchedule()
     private var lastSuccess: Date?
+    /// A fetch round has finished (successfully or not) — until then an empty
+    /// result means "loading", afterwards "unavailable".
+    private var hasCompletedRound = false
     private var isRunning = false
     private var isFetching = false
     private var refetchQueued = false
@@ -151,9 +154,12 @@ final class GoogleAPISource: EventSource {
                     throttled = true
                 }
                 // The store already marked an auth failure for reconnect; drop
-                // that account's events. Other failures keep the last good result.
+                // that account's events. Other failures keep the last good result
+                // and show in Settings.
                 if GoogleAccountStore.isAuthFailure(error) {
                     results[email] = nil
+                } else {
+                    accounts.recordFailure(email: email, message: Self.shortMessage(error))
                 }
             }
         }
@@ -163,6 +169,7 @@ final class GoogleAPISource: EventSource {
             schedule.recordSuccess()
         }
         if anySuccess { lastSuccess = Date() }
+        hasCompletedRound = true
         isFetching = false
 
         rebuildSnapshot()
@@ -231,9 +238,18 @@ final class GoogleAPISource: EventSource {
         let calendars = ordered.flatMap(\.calendars)
         let selectedKeys = Set(calendars.filter(isSelected).map(\.key))
         // Filter again so un-ticking a calendar hides it before the next fetch.
-        let mapped = GoogleEventMapper.dedupe(ordered.flatMap(\.events))
+        let all = ordered.flatMap(\.events)
+        let mapped = GoogleEventMapper.dedupe(all)
             .filter { selectedKeys.contains($0.event.calendarIdentifier) }
         eventsByID = Dictionary(mapped.map { ($0.event.identifier, $0) }, uniquingKeysWith: { first, _ in first })
+
+        // Connected accounts first, then owners of calendars shared into them,
+        // so Settings can pin a Chrome profile for each.
+        var accountEmails: [String] = []
+        for email in order + all.compactMap(\.event.accountEmail)
+        where !accountEmails.contains(where: { $0.caseInsensitiveCompare(email) == .orderedSame }) {
+            accountEmails.append(email)
+        }
 
         let multipleAccounts = order.count > 1
         snapshot = EventSnapshot(
@@ -248,7 +264,7 @@ final class GoogleAPISource: EventSource {
                 )
             },
             events: mapped.map(\.event).sorted { $0.startDate < $1.startDate },
-            accountEmails: order,
+            accountEmails: accountEmails,
             status: currentStatus(noneSelected: !calendars.isEmpty && selectedKeys.isEmpty)
         )
     }
@@ -256,22 +272,29 @@ final class GoogleAPISource: EventSource {
     private func currentStatus(noneSelected: Bool) -> SourceStatus {
         if accounts.accounts.isEmpty { return .notConnected }
         if !accounts.hasUsableAccount { return .needsReconnect }
-        if results.isEmpty { return .loading }
+        if results.isEmpty { return hasCompletedRound ? .unavailable : .loading }
         return noneSelected ? .nothingSelected : .ok
     }
 
     // MARK: - Decline
 
-    /// Decline the exact occurrence through the account that owns it, then hide
-    /// it right away; the next poll returns it as declined and the mapper drops it.
+    /// Decline the exact occurrence through the account that fetched it (its
+    /// token can write that calendar), then hide it right away — every cached
+    /// copy, or a copy seen through another account would take its place. The
+    /// next poll returns it as declined and the mapper drops it.
     func decline(eventID: String) async throws -> DeclineOutcome {
-        guard let item = eventsByID[eventID], item.event.canDecline,
-              let email = item.event.accountEmail else { return .notApplicable }
-        guard try await accounts.declineInstance(calendarID: item.calendarID, eventID: item.eventID, as: email) else {
+        guard let item = eventsByID[eventID], item.event.canDecline else { return .notApplicable }
+        guard try await accounts.declineInstance(
+            calendarID: item.calendarID, eventID: item.eventID, as: item.fetchedVia
+        ) else {
             return .notApplicable
         }
+        let declined = item.event
         for key in results.keys {
-            results[key]?.events.removeAll { $0.event.identifier == eventID }
+            results[key]?.events.removeAll { other in
+                guard let uid = declined.iCalUID else { return other.event.identifier == eventID }
+                return other.event.iCalUID == uid && other.event.startDate == declined.startDate
+            }
         }
         rebuildSnapshot()
         return .declined
@@ -298,6 +321,12 @@ final class GoogleAPISource: EventSource {
             .init(name: "maxResults", value: "250"),
         ]
         return components.url!
+    }
+
+    /// For Settings: an HTTP status rather than Google's whole JSON body.
+    private static func shortMessage(_ error: Error) -> String {
+        let ns = error as NSError
+        return ns.domain == "GoogleCalendar" ? "HTTP \(ns.code)" : error.localizedDescription
     }
 
     private static func isServerError(_ error: Error) -> Bool {

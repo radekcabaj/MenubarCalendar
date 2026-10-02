@@ -43,6 +43,7 @@ final class GoogleEventMapperTests: XCTestCase {
         XCTAssertEqual(mapped.event.identifier, "a@x.com/primary-id/evt1")
         XCTAssertEqual(mapped.event.calendarIdentifier, "a@x.com/primary-id")
         XCTAssertEqual(mapped.event.accountEmail, "a@x.com")
+        XCTAssertEqual(mapped.fetchedVia, "a@x.com")
         XCTAssertEqual(mapped.event.iCalUID, "uid-1@google.com")
         XCTAssertEqual(mapped.calendarID, "primary-id")
         XCTAssertEqual(mapped.eventID, "evt1")
@@ -124,6 +125,66 @@ final class GoogleEventMapperTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(map(json)).event.title, "")
     }
 
+    // MARK: Owning account
+
+    // A personal calendar shared into another account: the meeting belongs to
+    // the calendar's owner (Chrome profile, `authuser=`), but API calls must go
+    // through the account that fetched it.
+    func testSharedPersonalCalendarIsOwnedByTheSelfAttendee() throws {
+        let shared = GoogleCalendarEntry(
+            key: "mail@x.com/radek@tonik.com", accountEmail: "mail@x.com", calendarID: "radek@tonik.com",
+            title: "radek@tonik.com", colorHex: nil, isWritable: true, isSelectedInGoogle: true
+        )
+        let mapped = try XCTUnwrap(map(timed(["attendees": [
+            ["email": "radek@tonik.com", "self": true, "responseStatus": "accepted"],
+            ["email": "boss@tonik.com", "organizer": true],
+        ]]), calendar: shared))
+        XCTAssertEqual(mapped.event.accountEmail, "radek@tonik.com")
+        XCTAssertEqual(mapped.fetchedVia, "mail@x.com")
+        XCTAssertEqual(mapped.event.identifier, "mail@x.com/radek@tonik.com/evt1")
+    }
+
+    func testSharedPersonalCalendarWithoutSelfAttendeeIsOwnedByTheCalendar() throws {
+        let shared = GoogleCalendarEntry(
+            key: "mail@x.com/radek@tonik.com", accountEmail: "mail@x.com", calendarID: "radek@tonik.com",
+            title: "radek@tonik.com", colorHex: nil, isWritable: false, isSelectedInGoogle: true
+        )
+        let mapped = try XCTUnwrap(map(timed(), calendar: shared))
+        XCTAssertEqual(mapped.event.accountEmail, "radek@tonik.com")
+        XCTAssertEqual(mapped.fetchedVia, "mail@x.com")
+    }
+
+    func testGroupCalendarWithoutSelfAttendeeIsOwnedByTheFetchingAccount() throws {
+        let group = GoogleCalendarEntry(
+            key: "a@x.com/team@group.calendar.google.com", accountEmail: "a@x.com",
+            calendarID: "team@group.calendar.google.com",
+            title: "Team", colorHex: nil, isWritable: false, isSelectedInGoogle: true
+        )
+        let mapped = try XCTUnwrap(map(timed(), calendar: group))
+        XCTAssertEqual(mapped.event.accountEmail, "a@x.com")
+        XCTAssertEqual(mapped.fetchedVia, "a@x.com")
+    }
+
+    func testGroupCalendarAsSelfAttendeeIsOwnedByTheFetchingAccount() throws {
+        let group = GoogleCalendarEntry(
+            key: "a@x.com/team@group.calendar.google.com", accountEmail: "a@x.com",
+            calendarID: "team@group.calendar.google.com",
+            title: "Team", colorHex: nil, isWritable: true, isSelectedInGoogle: true
+        )
+        let mapped = try XCTUnwrap(map(timed(["attendees": [
+            ["email": "team@group.calendar.google.com", "self": true, "responseStatus": "accepted"],
+        ]]), calendar: group))
+        XCTAssertEqual(mapped.event.accountEmail, "a@x.com")
+    }
+
+    func testHTMLLinkIsTheWebURL() throws {
+        let mapped = try XCTUnwrap(map(timed([
+            "htmlLink": "https://www.google.com/calendar/event?eid=abc123",
+        ])))
+        XCTAssertEqual(mapped.event.webURL, URL(string: "https://www.google.com/calendar/event?eid=abc123"))
+        XCTAssertNil(try XCTUnwrap(map(timed())).event.webURL)
+    }
+
     // MARK: Meeting links
 
     func testHangoutLinkWins() throws {
@@ -187,15 +248,20 @@ final class GoogleEventMapperTests: XCTestCase {
 
     // MARK: Dedupe
 
-    private func copy(account: String, uid: String?, start: Date, isAttendee: Bool) -> MappedGoogleEvent {
+    /// A copy fetched through `account` from calendar `calendarID`, owned by
+    /// `owner` (defaults to the fetching account).
+    private func copy(
+        account: String, owner: String? = nil, calendarID: String = "cal",
+        uid: String?, start: Date, isAttendee: Bool
+    ) -> MappedGoogleEvent {
         MappedGoogleEvent(
             event: CalendarEvent(
-                identifier: "\(account)/cal/\(uid ?? "x")", title: "Sync", startDate: start,
+                identifier: "\(account)/\(calendarID)/\(uid ?? "x")", title: "Sync", startDate: start,
                 endDate: start.addingTimeInterval(1800), isAllDay: false,
-                calendarIdentifier: "\(account)/cal", calendarTitle: "cal",
-                accountEmail: account, iCalUID: uid
+                calendarIdentifier: "\(account)/\(calendarID)", calendarTitle: calendarID,
+                accountEmail: owner ?? account, iCalUID: uid
             ),
-            calendarID: "cal", eventID: uid ?? "x", hasSelfAttendee: isAttendee
+            calendarID: calendarID, eventID: uid ?? "x", fetchedVia: account, hasSelfAttendee: isAttendee
         )
     }
 
@@ -215,6 +281,21 @@ final class GoogleEventMapperTests: XCTestCase {
             copy(account: "home@x.com", uid: "u1", start: start, isAttendee: false),
         ])
         XCTAssertEqual(result.map(\.event.accountEmail), ["work@x.com"])
+    }
+
+    // Both copies list radek@tonik.com as `self`: the one fetched through
+    // radek@tonik.com itself wins over the one seen via a calendar shared into
+    // mail@x.com, whichever account was connected first.
+    func testDedupePrefersTheCopyFetchedByTheOwningAccount() {
+        let start = date(2026, 10, 5, 12)
+        let result = GoogleEventMapper.dedupe([
+            copy(account: "mail@x.com", owner: "radek@tonik.com", calendarID: "radek@tonik.com",
+                 uid: "u1", start: start, isAttendee: true),
+            copy(account: "radek@tonik.com", calendarID: "radek@tonik.com",
+                 uid: "u1", start: start, isAttendee: true),
+        ])
+        XCTAssertEqual(result.map(\.fetchedVia), ["radek@tonik.com"])
+        XCTAssertEqual(result.map(\.event.accountEmail), ["radek@tonik.com"])
     }
 
     func testDedupeKeepsSeparateOccurrencesAndEventsWithoutUID() {

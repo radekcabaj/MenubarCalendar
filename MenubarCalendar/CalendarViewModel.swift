@@ -192,6 +192,7 @@ final class CalendarViewModel: ObservableObject {
         case .notConnected: menuBarTitle = "Connect Google"
         case .needsReconnect: menuBarTitle = "Reconnect Google"
         case .nothingSelected: menuBarTitle = "No events"
+        case .unavailable: menuBarTitle = "Offline"
         case .loading, .ok: menuBarTitle = "…"
         }
     }
@@ -218,7 +219,8 @@ final class CalendarViewModel: ObservableObject {
         hotKey.unregister()
     }
 
-    /// Open the meeting link for the menu-bar event; fall back to Calendar.app.
+    /// Open the meeting link for the menu-bar event; without one, the event's
+    /// web page (Google mode), else Calendar.app.
     func openCurrentMeeting() {
         guard let event = selectedEvent else {
             NSSound.beep()
@@ -226,6 +228,8 @@ final class CalendarViewModel: ObservableObject {
         }
         if let url = EventLinkExtractor.meetingURL(for: event) {
             openMeetingURL(url, accountEmail: event.accountEmail)
+        } else if let webURL = event.webURL {
+            openMeetingURL(webURL, accountEmail: event.accountEmail)
         } else if let calendar = URL(string: "ical://") {
             NSWorkspace.shared.open(calendar)
         }

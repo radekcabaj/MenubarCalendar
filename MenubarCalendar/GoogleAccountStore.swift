@@ -54,15 +54,22 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         accounts = order.filter { tokens[$0] != nil }.map { GoogleAccount(email: $0) }
     }
 
-    /// Move the pre-multi-account item to a per-email item, first in order. It
-    /// was minted without `calendar.readonly`, so its first read 403s and marks
-    /// it `needsReconnect` — Settings then asks for one reconnect.
+    /// Move the pre-multi-account item to a per-email item, first in order. Its
+    /// scopes already cover everything the Google source reads, so it keeps
+    /// working without a reconnect. The legacy item is deleted only once the
+    /// new one is confirmed written — it may be the only copy of the token.
     private func migrateLegacyTokens() {
         guard let data = vault.load(account: Self.legacyVaultAccount) else { return }
-        vault.delete(account: Self.legacyVaultAccount)
         guard let legacy = try? JSONDecoder().decode(GoogleTokens.self, from: data),
-              let email = legacy.email else { return } // no email to key it by: reconnect
-        vault.save(data, account: email)
+              let email = legacy.email else {
+            Diagnostics.log("google legacy tokens have no email; left in place")
+            return
+        }
+        guard vault.save(data, account: email), vault.load(account: email) != nil else {
+            Diagnostics.log("google legacy tokens could not be re-saved for \(email); left in place")
+            return
+        }
+        vault.delete(account: Self.legacyVaultAccount)
         var order = defaults.stringArray(forKey: Self.orderKey) ?? []
         order.removeAll { $0 == email }
         order.insert(email, at: 0)
@@ -72,8 +79,9 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
     // MARK: - Accounts
 
     /// Run the OAuth flow for a new account — or an existing one, which
-    /// refreshes its tokens and clears `needsReconnect`. Safe to call from the UI.
-    func addAccount() async {
+    /// refreshes its tokens and clears `needsReconnect`; pass its email as
+    /// `loginHint` so Google preselects it. Safe to call from the UI.
+    func addAccount(loginHint: String? = nil) async {
         guard let clientID = GoogleConfig.clientID else {
             errorMessage = "No Google client ID configured (see setup notes)."
             return
@@ -84,7 +92,7 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         do {
             let verifier = Self.randomCodeVerifier()
             let challenge = Self.codeChallenge(for: verifier)
-            let code = try await authorize(clientID: clientID, challenge: challenge)
+            let code = try await authorize(clientID: clientID, challenge: challenge, loginHint: loginHint)
             var newTokens = try await exchange(code: code, verifier: verifier, clientID: clientID)
             guard let email = try await fetchPrimaryEmail(accessToken: newTokens.accessToken) else {
                 errorMessage = "Couldn't read the Google account's email address."
@@ -132,6 +140,14 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
     func recordSync(email: String, at date: Date = Date()) {
         guard let index = accounts.firstIndex(where: { $0.email == email }) else { return }
         accounts[index].lastSync = date
+        accounts[index].lastError = nil
+    }
+
+    /// A fetch failed for a reason other than auth (offline, 5xx…); shown in
+    /// Settings until the next good sync.
+    func recordFailure(email: String, message: String) {
+        guard let index = accounts.firstIndex(where: { $0.email == email }) else { return }
+        accounts[index].lastError = message
     }
 
     // MARK: - Error classification
@@ -241,7 +257,7 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
 
     // MARK: - OAuth
 
-    private func authorize(clientID: String, challenge: String) async throws -> String {
+    private func authorize(clientID: String, challenge: String, loginHint: String?) async throws -> String {
         var components = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         components.queryItems = [
             .init(name: "client_id", value: clientID),
@@ -255,6 +271,11 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
             // reuse the one already signed in to the browser session.
             .init(name: "prompt", value: "consent select_account"),
         ]
+        if let loginHint {
+            // Reconnecting: steer the chooser to that account, not whichever
+            // one the browser has signed in.
+            components.queryItems?.append(.init(name: "login_hint", value: loginHint))
+        }
         let authURL = components.url!
         let scheme = GoogleConfig.redirectScheme(clientID: clientID)
 
@@ -327,6 +348,8 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
             markNeedsReconnect(email: email)
             throw URLError(.userAuthenticationRequired)
         }
+        // Removed while the refresh was in flight: don't bring its token back.
+        guard tokens[email] != nil else { throw URLError(.userAuthenticationRequired) }
         current.accessToken = access
         current.expiry = Date().addingTimeInterval(expiresIn - 60)
         // Google may or may not return a new refresh token; keep the old if not.
@@ -475,6 +498,8 @@ struct GoogleAccount: Identifiable, Equatable {
     var needsReconnect = false
     /// When this account's events were last fetched successfully.
     var lastSync: Date?
+    /// Why the last fetch failed, if it did (cleared by a good sync).
+    var lastError: String?
 }
 
 /// OAuth tokens persisted in the Keychain, one item per account.
@@ -488,7 +513,9 @@ struct GoogleTokens: Codable {
 
 /// Where per-account token blobs live: the Keychain in the app, memory in tests.
 protocol TokenVault {
-    func save(_ data: Data, account: String)
+    /// `false` if the item couldn't be written.
+    @discardableResult
+    func save(_ data: Data, account: String) -> Bool
     func load(account: String) -> Data?
     func delete(account: String)
 }
@@ -505,11 +532,12 @@ struct KeychainVault: TokenVault {
         ]
     }
 
-    func save(_ data: Data, account: String) {
+    @discardableResult
+    func save(_ data: Data, account: String) -> Bool {
         SecItemDelete(query(account) as CFDictionary)
         var attributes = query(account)
         attributes[kSecValueData as String] = data
-        SecItemAdd(attributes as CFDictionary, nil)
+        return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
 
     func load(account: String) -> Data? {
@@ -529,10 +557,10 @@ struct KeychainVault: TokenVault {
 /// Reads the Google client id from Info.plist and derives the reversed-client-id
 /// redirect used by Google's installed-app OAuth flow.
 private enum GoogleConfig {
-    // `calendar.events` reads/patches the RSVP; `calendar.calendarlist.readonly`
-    // lists calendars (finding where an invitation lives, the account email);
-    // `calendar.readonly` reads every selected calendar for the Google source.
-    static let scope = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.readonly"
+    // `calendar.events` lists the events of every selected calendar (the Google
+    // source) and reads/patches the RSVP; `calendar.calendarlist.readonly` lists
+    // calendars (finding where an invitation lives, the account email).
+    static let scope = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly"
 
     static var clientID: String? {
         let value = Bundle.main.object(forInfoDictionaryKey: "GoogleOAuthClientID") as? String

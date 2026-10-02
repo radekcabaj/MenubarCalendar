@@ -14,7 +14,7 @@ struct CalendarInfo: Identifiable {
 /// Why a source has nothing to show, if it doesn't.
 enum SourceStatus: Equatable {
     case ok
-    /// No result yet (first fetch in flight, or offline since launch).
+    /// No result yet (first fetch in flight).
     case loading
     /// macOS Calendar access not granted.
     case noAccess
@@ -24,6 +24,8 @@ enum SourceStatus: Equatable {
     case needsReconnect
     /// The user unticked every calendar.
     case nothingSelected
+    /// Fetches finished but nothing could be loaded — offline or Google errors.
+    case unavailable
 }
 
 /// Everything `CalendarViewModel` renders, as last read from a source.
