@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AAAA00000000000000000060 /* GoogleAPISourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000061 /* GoogleAPISourceTests.swift */; };
+		AAAA0000000000000000005E /* GoogleAPISource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000005F /* GoogleAPISource.swift */; };
 		AAAA0000000000000000005C /* EventKitSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000005D /* EventKitSource.swift */; };
 		AAAA0000000000000000005A /* EventSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000005B /* EventSource.swift */; };
 		AAAA00000000000000000058 /* GoogleAccountStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000059 /* GoogleAccountStoreTests.swift */; };
@@ -45,6 +47,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAAA00000000000000000061 /* GoogleAPISourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAPISourceTests.swift; sourceTree = "<group>"; };
+		AAAA0000000000000000005F /* GoogleAPISource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAPISource.swift; sourceTree = "<group>"; };
 		AAAA0000000000000000005D /* EventKitSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventKitSource.swift; sourceTree = "<group>"; };
 		AAAA0000000000000000005B /* EventSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventSource.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000059 /* GoogleAccountStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAccountStoreTests.swift; sourceTree = "<group>"; };
@@ -106,6 +110,7 @@
 		AAAA00000000000000000003 /* MenubarCalendar */ = {
 			isa = PBXGroup;
 			children = (
+				AAAA0000000000000000005F /* GoogleAPISource.swift */,
 				AAAA0000000000000000005D /* EventKitSource.swift */,
 				AAAA0000000000000000005B /* EventSource.swift */,
 				AAAA00000000000000000055 /* GoogleEventMapper.swift */,
@@ -139,6 +144,7 @@
 		AAAA00000000000000000005 /* MenubarCalendarTests */ = {
 			isa = PBXGroup;
 			children = (
+				AAAA00000000000000000061 /* GoogleAPISourceTests.swift */,
 				AAAA00000000000000000059 /* GoogleAccountStoreTests.swift */,
 				AAAA00000000000000000057 /* GoogleEventMapperTests.swift */,
 				AAAA00000000000000000053 /* AppSettingsTests.swift */,
@@ -265,6 +271,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAAA0000000000000000005E /* GoogleAPISource.swift in Sources */,
 				AAAA0000000000000000005C /* EventKitSource.swift in Sources */,
 				AAAA0000000000000000005A /* EventSource.swift in Sources */,
 				AAAA00000000000000000054 /* GoogleEventMapper.swift in Sources */,
@@ -290,6 +297,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAAA00000000000000000060 /* GoogleAPISourceTests.swift in Sources */,
 				AAAA00000000000000000058 /* GoogleAccountStoreTests.swift in Sources */,
 				AAAA00000000000000000056 /* GoogleEventMapperTests.swift in Sources */,
 				AAAA00000000000000000052 /* AppSettingsTests.swift in Sources */,
