@@ -7,7 +7,7 @@ import SwiftUI
 /// inside a `MenuBarExtra` window because it dismisses when it loses focus.
 struct EventListView: View {
     @EnvironmentObject private var viewModel: CalendarViewModel
-    @EnvironmentObject private var google: GoogleCalendarService
+    @EnvironmentObject private var google: GoogleAccountStore
     @State private var showingSettings = false
     /// The event being edited, plus its starting values; non-nil swaps the
     /// pop-over to the editor.
@@ -244,7 +244,7 @@ struct EventListView: View {
     }
 
     private func declineMessage(for row: EventRow) -> String {
-        if google.isConnected {
+        if google.hasUsableAccount {
             return "“\(row.title)” — you'll be marked as declined and the organizer will be notified. It will be removed from your list."
         }
         return "“\(row.title)” will be removed from your list. Connect a Google account in Settings if you want the organizer to be notified you declined."

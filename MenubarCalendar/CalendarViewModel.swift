@@ -38,7 +38,7 @@ final class CalendarViewModel: ObservableObject {
     /// Google Calendar connection, used to send a real "declined" RSVP that
     /// notifies the organizer (EventKit can't). Injected so it can be shared
     /// with the settings UI.
-    let google: GoogleCalendarService
+    let google: GoogleAccountStore
     private let hotKey = HotKeyManager()
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
@@ -62,7 +62,7 @@ final class CalendarViewModel: ObservableObject {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
-    init(settings: AppSettings, google: GoogleCalendarService) {
+    init(settings: AppSettings, google: GoogleAccountStore) {
         self.settings = settings
         self.google = google
         self.declinedUIDs = Set(UserDefaults.standard.stringArray(forKey: "declinedICalUIDs") ?? [])
@@ -341,23 +341,24 @@ final class CalendarViewModel: ObservableObject {
         guard let event = eventsByRowID[rowID] else { NSSound.beep(); return }
         let uid = event.calendarItemExternalIdentifier
 
-        if google.isConnected, let uid, !uid.isEmpty {
+        if google.hasUsableAccount, let uid, !uid.isEmpty {
             Task { @MainActor in
                 do {
-                    if try await google.declineEvent(iCalUID: uid) {
-                        declinedUIDs.insert(uid)
-                        eventsByRowID[rowID] = nil
-                        reload()
-                        return
+                    // Any connected account may hold a writable copy (its own
+                    // calendar, or one shared into it with edit access).
+                    for account in google.accounts where !account.needsReconnect {
+                        if try await google.declineEvent(iCalUID: uid, as: account.email) {
+                            declinedUIDs.insert(uid)
+                            eventsByRowID[rowID] = nil
+                            reload()
+                            return
+                        }
                     }
-                    // Cleanly found no writable copy / we're not an attendee:
-                    // a local remove is the best we can do here.
                     diag("google decline: event not found on a writable calendar, falling back")
                     localRemove(event, rowID: rowID)
                 } catch {
-                    // A real API failure (e.g. a token missing the calendar
-                    // scope). Do NOT locally delete — that would hide the event
-                    // while leaving the user shown as attending on Google.
+                    // A real API failure. Do NOT locally delete — that would
+                    // hide the event while leaving the user shown as attending.
                     diag("google decline failed for \(rowID): \(error)")
                     google.reportDeclineFailure(error)
                     NSSound.beep()

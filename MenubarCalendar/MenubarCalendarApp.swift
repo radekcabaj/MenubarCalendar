@@ -4,12 +4,12 @@ import SwiftUI
 struct MenubarCalendarApp: App {
     @StateObject private var settings: AppSettings
     @StateObject private var viewModel: CalendarViewModel
-    @StateObject private var google: GoogleCalendarService
+    @StateObject private var google: GoogleAccountStore
     @StateObject private var loginItem = LoginItemManager()
 
     init() {
         let settings = AppSettings()
-        let google = GoogleCalendarService()
+        let google = GoogleAccountStore()
         _settings = StateObject(wrappedValue: settings)
         _google = StateObject(wrappedValue: google)
         _viewModel = StateObject(wrappedValue: CalendarViewModel(settings: settings, google: google))

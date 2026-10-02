@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AAAA00000000000000000058 /* GoogleAccountStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000059 /* GoogleAccountStoreTests.swift */; };
 		AAAA00000000000000000056 /* GoogleEventMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000057 /* GoogleEventMapperTests.swift */; };
 		AAAA00000000000000000054 /* GoogleEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000055 /* GoogleEventMapper.swift */; };
 		AAAA00000000000000000052 /* AppSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000053 /* AppSettingsTests.swift */; };
@@ -14,7 +15,7 @@
 		AAAA00000000000000000020 /* CalendarViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000021 /* CalendarViewModel.swift */; };
 		AAAA00000000000000000022 /* EventListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000023 /* EventListView.swift */; };
 		AAAA00000000000000000024 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000025 /* SettingsView.swift */; };
-		AAAA00000000000000000050 /* GoogleCalendarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000051 /* GoogleCalendarService.swift */; };
+		AAAA00000000000000000050 /* GoogleAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000051 /* GoogleAccountStore.swift */; };
 		AAAA00000000000000000026 /* ShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000027 /* ShortcutRecorder.swift */; };
 		AAAA00000000000000000028 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA00000000000000000029 /* AppSettings.swift */; };
 		AAAA0000000000000000002A /* LoginItemManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA0000000000000000002B /* LoginItemManager.swift */; };
@@ -42,6 +43,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AAAA00000000000000000059 /* GoogleAccountStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAccountStoreTests.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000057 /* GoogleEventMapperTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleEventMapperTests.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000055 /* GoogleEventMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleEventMapper.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000053 /* AppSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsTests.swift; sourceTree = "<group>"; };
@@ -52,7 +54,7 @@
 		AAAA00000000000000000021 /* CalendarViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarViewModel.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000023 /* EventListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventListView.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000025 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		AAAA00000000000000000051 /* GoogleCalendarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleCalendarService.swift; sourceTree = "<group>"; };
+		AAAA00000000000000000051 /* GoogleAccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAccountStore.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000027 /* ShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorder.swift; sourceTree = "<group>"; };
 		AAAA00000000000000000029 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		AAAA0000000000000000002B /* LoginItemManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItemManager.swift; sourceTree = "<group>"; };
@@ -105,7 +107,7 @@
 				AAAA00000000000000000021 /* CalendarViewModel.swift */,
 				AAAA00000000000000000023 /* EventListView.swift */,
 				AAAA00000000000000000025 /* SettingsView.swift */,
-				AAAA00000000000000000051 /* GoogleCalendarService.swift */,
+				AAAA00000000000000000051 /* GoogleAccountStore.swift */,
 				AAAA00000000000000000027 /* ShortcutRecorder.swift */,
 				AAAA00000000000000000029 /* AppSettings.swift */,
 				AAAA0000000000000000002B /* LoginItemManager.swift */,
@@ -131,6 +133,7 @@
 		AAAA00000000000000000005 /* MenubarCalendarTests */ = {
 			isa = PBXGroup;
 			children = (
+				AAAA00000000000000000059 /* GoogleAccountStoreTests.swift */,
 				AAAA00000000000000000057 /* GoogleEventMapperTests.swift */,
 				AAAA00000000000000000053 /* AppSettingsTests.swift */,
 				AAAA00000000000000000039 /* EventLogicTests.swift */,
@@ -261,7 +264,7 @@
 				AAAA00000000000000000020 /* CalendarViewModel.swift in Sources */,
 				AAAA00000000000000000022 /* EventListView.swift in Sources */,
 				AAAA00000000000000000024 /* SettingsView.swift in Sources */,
-				AAAA00000000000000000050 /* GoogleCalendarService.swift in Sources */,
+				AAAA00000000000000000050 /* GoogleAccountStore.swift in Sources */,
 				AAAA00000000000000000026 /* ShortcutRecorder.swift in Sources */,
 				AAAA00000000000000000028 /* AppSettings.swift in Sources */,
 				AAAA0000000000000000002A /* LoginItemManager.swift in Sources */,
@@ -279,6 +282,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAAA00000000000000000058 /* GoogleAccountStoreTests.swift in Sources */,
 				AAAA00000000000000000056 /* GoogleEventMapperTests.swift in Sources */,
 				AAAA00000000000000000052 /* AppSettingsTests.swift in Sources */,
 				AAAA00000000000000000038 /* EventLogicTests.swift in Sources */,
