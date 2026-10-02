@@ -126,6 +126,22 @@ final class GoogleAccountStoreTests: XCTestCase {
         XCTAssertTrue(GoogleAccountStore.isRateLimited(httpError(429)))
     }
 
+    func testPlainForbiddenIsNeitherAuthFailureNorRateLimited() {
+        let error = httpError(403, #"{"error":{"errors":[{"reason":"forbidden"}]}}"#)
+        XCTAssertFalse(GoogleAccountStore.isAuthFailure(error))
+        XCTAssertFalse(GoogleAccountStore.isRateLimited(error))
+    }
+
+    func testDailyLimitExceededIsRateLimited() {
+        let error = httpError(403, "dailyLimitExceeded")
+        XCTAssertTrue(GoogleAccountStore.isRateLimited(error))
+        XCTAssertFalse(GoogleAccountStore.isAuthFailure(error))
+    }
+
+    func testInsufficientScopeIsAuthFailure() {
+        XCTAssertTrue(GoogleAccountStore.isAuthFailure(httpError(403, "ACCESS_TOKEN_SCOPE_INSUFFICIENT")))
+    }
+
     func testNetworkErrorsAreNeither() {
         let offline = URLError(.notConnectedToInternet)
         XCTAssertFalse(GoogleAccountStore.isAuthFailure(offline))

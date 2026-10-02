@@ -144,14 +144,23 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         guard ns.domain == "GoogleCalendar" else { return false }
         if ns.code == 429 { return true }
         let body = ns.localizedDescription.lowercased()
-        return ns.code == 403 && (body.contains("ratelimitexceeded") || body.contains("quotaexceeded"))
+        return ns.code == 403 && (body.contains("ratelimitexceeded") || body.contains("quotaexceeded")
+                || body.contains("dailylimitexceeded"))
     }
 
-    /// The token is revoked, expired or missing a scope: only signing in again helps.
+    /// The token is revoked, expired or missing a scope: only signing in again
+    /// helps. A bare 403 (e.g. `forbidden` on one calendar) is NOT one: it only
+    /// concerns that resource, so it must not disable the whole account.
     static func isAuthFailure(_ error: Error) -> Bool {
         if (error as? URLError)?.code == .userAuthenticationRequired { return true }
         let ns = error as NSError
-        return ns.domain == "GoogleCalendar" && (ns.code == 401 || ns.code == 403) && !isRateLimited(error)
+        guard ns.domain == "GoogleCalendar" else { return false }
+        if ns.code == 401 { return true }
+        guard ns.code == 403, !isRateLimited(error) else { return false }
+        let body = ns.localizedDescription.lowercased()
+        return body.contains("insufficientpermissions")
+            || body.contains("access_token_scope_insufficient")
+            || body.contains("autherror")
     }
 
     /// Surface a failed decline. The account was already marked for reconnect
@@ -185,9 +194,15 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         try await markingAuthFailures(of: email) {
             let token = try await validAccessToken(for: email)
             for calendar in try await writableCalendars(token: token) {
-                guard let event = try await findEvent(calendarID: calendar, iCalUID: iCalUID, token: token) else {
-                    continue
+                let found: [String: Any]?
+                do {
+                    found = try await findEvent(calendarID: calendar, iCalUID: iCalUID, token: token)
+                } catch let error as NSError where error.domain == "GoogleCalendar"
+                    && (400..<500).contains(error.code)
+                    && !Self.isAuthFailure(error) && !Self.isRateLimited(error) {
+                    continue // this calendar refuses us; the account's others may not
                 }
+                guard let event = found else { continue }
                 return try await sendDecline(event, calendarID: calendar, token: token)
             }
             return false
