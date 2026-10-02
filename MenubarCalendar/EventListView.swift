@@ -7,7 +7,6 @@ import SwiftUI
 /// inside a `MenuBarExtra` window because it dismisses when it loses focus.
 struct EventListView: View {
     @EnvironmentObject private var viewModel: CalendarViewModel
-    @EnvironmentObject private var google: GoogleAccountStore
     @State private var showingSettings = false
     /// The event being edited, plus its starting values; non-nil swaps the
     /// pop-over to the editor.
@@ -54,6 +53,7 @@ struct EventListView: View {
             }
         }
         .frame(width: 340)
+        .onAppear { viewModel.popoverDidOpen() }
     }
 
     private var mainContent: some View {
@@ -74,6 +74,12 @@ struct EventListView: View {
         if viewModel.accessDenied {
             AccessDeniedView()
                 .padding(16)
+        } else if viewModel.sourceStatus == .notConnected || viewModel.sourceStatus == .needsReconnect {
+            ConnectGoogleView(
+                needsReconnect: viewModel.sourceStatus == .needsReconnect,
+                onOpenSettings: { withAnimation(nav) { showingSettings = true } }
+            )
+            .padding(16)
         } else if viewModel.sections.isEmpty {
             emptyState
         } else {
@@ -248,7 +254,7 @@ struct EventListView: View {
     }
 
     private func declineMessage(for row: EventRow) -> String {
-        if google.hasUsableAccount {
+        if viewModel.declineNotifiesOrganizer {
             return "“\(row.title)” — you'll be marked as declined and the organizer will be notified. It will be removed from your list."
         }
         return "“\(row.title)” will be removed from your list. Connect a Google account in Settings if you want the organizer to be notified you declined."
@@ -544,6 +550,28 @@ struct EventEditScreen: View {
                 .foregroundStyle(.secondary)
             content()
         }
+    }
+}
+
+/// Shown in Google mode when no account can fetch events.
+struct ConnectGoogleView: View {
+    let needsReconnect: Bool
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(needsReconnect ? "Reconnect Google" : "Connect a Google account",
+                  systemImage: "person.crop.circle.badge.exclamationmark")
+                .font(.headline)
+            Text(needsReconnect
+                 ? "Google needs you to sign in again before events can be fetched."
+                 : "Events come straight from Google Calendar. Add an account in Settings, or switch the data source to macOS Calendar.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Settings", action: onOpenSettings)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

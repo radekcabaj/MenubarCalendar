@@ -1,3 +1,4 @@
+import EventKit
 import SwiftUI
 
 @main
@@ -8,7 +9,11 @@ struct MenubarCalendarApp: App {
     @StateObject private var loginItem = LoginItemManager()
 
     init() {
-        let settings = AppSettings()
+        // Someone who already granted calendar access was using the macOS
+        // Calendar source; keep them on it until they switch in Settings.
+        let settings = AppSettings(
+            isExistingInstall: EKEventStore.authorizationStatus(for: .event) == .fullAccess
+        )
         let google = GoogleAccountStore()
         _settings = StateObject(wrappedValue: settings)
         _google = StateObject(wrappedValue: google)

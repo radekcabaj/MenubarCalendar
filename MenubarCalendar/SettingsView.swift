@@ -20,6 +20,8 @@ struct SettingsView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    sourceSection
+                    Divider()
                     googleSection
                     Divider()
                     generalSection
@@ -50,6 +52,28 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
+    }
+
+    private var sourceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Źródło danych")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Picker("", selection: $settings.dataSource) {
+                Text("Google (bezpośrednio)").tag(DataSource.google)
+                Text("Kalendarz macOS").tag(DataSource.eventKit)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text(settings.dataSource == .google
+                 ? "Wydarzenia są pobierane z Google co 2 minuty — aplikacja Kalendarz nie jest potrzebna."
+                 : "Wydarzenia pochodzą z kont skonfigurowanych w macOS (Ustawienia systemowe → Konta internetowe).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var generalSection: some View {
@@ -266,14 +290,20 @@ struct SettingsView: View {
             } else {
                 ForEach(viewModel.availableCalendars) { calendar in
                     Toggle(isOn: Binding(
-                        get: { settings.isSelected(calendar.id, in: .eventKit) },
+                        get: {
+                            settings.isSelected(calendar.id, in: settings.dataSource,
+                                                default: calendar.isSelectedByDefault)
+                        },
                         set: { newValue in
                             settings.setSelected(
                                 calendar.id,
                                 selected: newValue,
-                                in: .eventKit,
+                                in: settings.dataSource,
                                 currentlySelected: viewModel.availableCalendars
-                                    .filter { settings.isSelected($0.id, in: .eventKit) }
+                                    .filter {
+                                        settings.isSelected($0.id, in: settings.dataSource,
+                                                            default: $0.isSelectedByDefault)
+                                    }
                                     .map(\.id)
                             )
                         }

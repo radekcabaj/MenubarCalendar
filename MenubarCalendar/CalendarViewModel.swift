@@ -49,7 +49,7 @@ final class CalendarViewModel: ObservableObject {
     init(settings: AppSettings, google: GoogleAccountStore) {
         self.settings = settings
         self.google = google
-        self.source = EventKitSource(settings: settings, google: google)
+        self.source = Self.makeSource(settings.dataSource, settings: settings, google: google)
 
         // Don't touch EventKit / timers when hosted by the unit-test runner.
         guard !Self.isRunningTests else { return }
@@ -67,12 +67,50 @@ final class CalendarViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Data source switched in Settings → swap the source.
+        settings.$dataSource
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] kind in
+                Task { @MainActor in self?.switchSource(to: kind) }
+            }
+            .store(in: &cancellables)
+
         source.start()
         startTimer()
         updateHotKey()
     }
 
     // MARK: - Refresh
+
+    private static func makeSource(
+        _ kind: DataSource, settings: AppSettings, google: GoogleAccountStore
+    ) -> EventSource {
+        switch kind {
+        case .google: GoogleAPISource(accounts: google, settings: settings)
+        case .eventKit: EventKitSource(settings: settings, google: google)
+        }
+    }
+
+    private func switchSource(to kind: DataSource) {
+        source.onChange = nil
+        source.stop()
+        source = Self.makeSource(kind, settings: settings, google: google)
+        source.onChange = { [weak self] in self?.reload() }
+        source.start()
+        reload()
+    }
+
+    /// The pop-over just opened: fetch unless the data is only seconds old.
+    func popoverDidOpen() {
+        source.refresh(force: false)
+    }
+
+    /// Whether Decline reaches the organizer — always in Google mode (or it
+    /// fails visibly); in macOS Calendar mode only with a connected account.
+    var declineNotifiesOrganizer: Bool {
+        settings.dataSource == .google || google.hasUsableAccount
+    }
 
     private func startTimer() {
         timer?.invalidate()
