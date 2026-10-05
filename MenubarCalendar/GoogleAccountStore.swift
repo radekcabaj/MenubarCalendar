@@ -520,6 +520,20 @@ protocol TokenVault {
     func delete(account: String)
 }
 
+/// In-memory vault for the XCTest host, so tests never touch the real Keychain.
+final class EphemeralTokenVault: TokenVault {
+    private var items: [String: Data] = [:]
+
+    @discardableResult
+    func save(_ data: Data, account: String) -> Bool {
+        items[account] = data
+        return true
+    }
+
+    func load(account: String) -> Data? { items[account] }
+    func delete(account: String) { items[account] = nil }
+}
+
 /// Generic-password Keychain items under one service, keyed by account email.
 struct KeychainVault: TokenVault {
     private let service = "com.rc.MenubarCalendar.google"
