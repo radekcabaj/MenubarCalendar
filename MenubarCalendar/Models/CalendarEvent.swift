@@ -23,6 +23,9 @@ struct CalendarEvent: Equatable {
     /// them. In Google mode this is the owner, not necessarily the account that
     /// fetched it (see `MappedGoogleEvent.fetchedVia`).
     var accountEmail: String? = nil
+    /// The connected account the event was fetched through; used for routing
+    /// when the owner isn't one of the user's identities.
+    var fallbackAccountEmail: String? = nil
     /// The iCalendar UID, shared by every copy of an invitation — used to spot
     /// the same meeting seen through two accounts and to hide declines.
     var iCalUID: String? = nil

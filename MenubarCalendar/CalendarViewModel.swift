@@ -29,7 +29,7 @@ final class CalendarViewModel: ObservableObject {
     let google: GoogleAccountStore
     private var source: EventSource
     /// Joinable meeting link (and its account) per row id, for tap/hover "Join".
-    private var meetingByRowID: [String: (url: URL, accountEmail: String?)] = [:]
+    private var meetingByRowID: [String: (url: URL, accountEmail: String?, fallback: String?)] = [:]
     private let hotKey = HotKeyManager()
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
@@ -135,10 +135,10 @@ final class CalendarViewModel: ObservableObject {
         let cal = calendar
         let now = Date()
         let events = snapshot.events
-        var meetingMap: [String: (url: URL, accountEmail: String?)] = [:]
+        var meetingMap: [String: (url: URL, accountEmail: String?, fallback: String?)] = [:]
         for event in events {
             if let url = EventLinkExtractor.meetingURL(for: event) {
-                meetingMap[event.identifier] = (url, event.accountEmail)
+                meetingMap[event.identifier] = (url, event.accountEmail, event.fallbackAccountEmail)
             }
         }
         meetingByRowID = meetingMap
@@ -227,9 +227,9 @@ final class CalendarViewModel: ObservableObject {
             return
         }
         if let url = EventLinkExtractor.meetingURL(for: event) {
-            openMeetingURL(url, accountEmail: event.accountEmail)
+            openMeetingURL(url, accountEmail: event.accountEmail, fallback: event.fallbackAccountEmail)
         } else if let webURL = event.webURL {
-            openMeetingURL(webURL, accountEmail: event.accountEmail)
+            openMeetingURL(webURL, accountEmail: event.accountEmail, fallback: event.fallbackAccountEmail)
         } else if let calendar = URL(string: "ical://") {
             NSWorkspace.shared.open(calendar)
         }
@@ -238,7 +238,7 @@ final class CalendarViewModel: ObservableObject {
     /// Open the meeting link for a specific list row (tap / hover "Join").
     func openMeeting(rowID: String) {
         guard let meeting = meetingByRowID[rowID] else { NSSound.beep(); return }
-        openMeetingURL(meeting.url, accountEmail: meeting.accountEmail)
+        openMeetingURL(meeting.url, accountEmail: meeting.accountEmail, fallback: meeting.fallback)
     }
 
     /// Open in Chrome, pinned to the profile that owns the event's account, so a
@@ -246,15 +246,32 @@ final class CalendarViewModel: ObservableObject {
     /// Chrome happened to use last. Google links additionally get
     /// `authuser=<email>` to pick the right identity *inside* that profile.
     /// Falls back to the default browser only when Chrome can't be launched.
-    private func openMeetingURL(_ url: URL, accountEmail: String?) {
-        let finalURL = accountEmail.map { EventLinkExtractor.accountURL(url, authuserEmail: $0) } ?? url
-        let directory = accountEmail.flatMap {
-            ChromeProfileResolver.profileDirectory(
-                forEmail: $0, overrides: settings.chromeProfileOverrides
-            )
+    private func openMeetingURL(_ url: URL, accountEmail: String?, fallback: String?) {
+        let overrides = settings.chromeProfileOverrides
+        let email = Self.routingEmail(
+            owner: accountEmail, fallback: fallback,
+            connected: google.accounts.map(\.email),
+            hasProfile: { ChromeProfileResolver.profileDirectory(forEmail: $0, overrides: overrides) != nil }
+        )
+        let finalURL = email.map { EventLinkExtractor.accountURL(url, authuserEmail: $0) } ?? url
+        let directory = email.flatMap {
+            ChromeProfileResolver.profileDirectory(forEmail: $0, overrides: overrides)
         }
         if ChromeProfileResolver.open(finalURL, profileDirectory: directory) { return }
         NSWorkspace.shared.open(finalURL)
+    }
+
+    /// The email that picks the Chrome profile and `authuser=`. The owner, when
+    /// it is one of the user's identities (a connected account or one with a
+    /// Chrome profile); otherwise the account the event was fetched through —
+    /// a colleague's shared calendar has an owner with no profile or sign-in.
+    nonisolated static func routingEmail(
+        owner: String?, fallback: String?, connected: [String], hasProfile: (String) -> Bool
+    ) -> String? {
+        guard let owner else { return fallback }
+        let isConnected = connected.contains { $0.caseInsensitiveCompare(owner) == .orderedSame }
+        if isConnected || hasProfile(owner) { return owner }
+        return fallback ?? owner
     }
 
     // MARK: - Swipe actions (decline / edit)

@@ -83,6 +83,7 @@ enum GoogleEventMapper {
             location: json["location"] as? String,
             notes: json["description"] as? String,
             accountEmail: owner(selfAttendee: me, calendar: calendar),
+            fallbackAccountEmail: calendar.accountEmail,
             iCalUID: json["iCalUID"] as? String,
             webURL: (json["htmlLink"] as? String).flatMap(URL.init(string:)),
             isEditable: false,

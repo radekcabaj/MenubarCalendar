@@ -243,10 +243,10 @@ final class GoogleAPISource: EventSource {
             .filter { selectedKeys.contains($0.event.calendarIdentifier) }
         eventsByID = Dictionary(mapped.map { ($0.event.identifier, $0) }, uniquingKeysWith: { first, _ in first })
 
-        // Connected accounts first, then owners of calendars shared into them,
-        // so Settings can pin a Chrome profile for each.
+        // Connected accounts first, then owners of the events shown (calendars
+        // shared into them), so Settings can pin a Chrome profile for each.
         var accountEmails: [String] = []
-        for email in order + all.compactMap(\.event.accountEmail)
+        for email in order + mapped.compactMap(\.event.accountEmail)
         where !accountEmails.contains(where: { $0.caseInsensitiveCompare(email) == .orderedSame }) {
             accountEmails.append(email)
         }
