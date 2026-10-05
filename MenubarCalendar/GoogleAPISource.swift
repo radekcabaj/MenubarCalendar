@@ -48,8 +48,9 @@ final class GoogleAPISource: EventSource {
     private var eventsByID: [String: MappedGoogleEvent] = [:]
     private var schedule = PollSchedule()
     private var lastSuccess: Date?
-    /// A fetch round has finished (successfully or not) — until then an empty
-    /// result means "loading", afterwards "unavailable".
+    /// A fetch round that tried at least one account has finished (successfully
+    /// or not) — until then an empty result means "loading", afterwards
+    /// "unavailable". Reset when the usable accounts change.
     private var hasCompletedRound = false
     private var isRunning = false
     private var isFetching = false
@@ -76,7 +77,12 @@ final class GoogleAPISource: EventSource {
             .map { $0.map { "\($0.email)|\($0.needsReconnect)" } }
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] _ in Task { @MainActor in self?.refresh(force: true) } }
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.hasCompletedRound = false
+                    self?.refresh(force: true)
+                }
+            }
             .store(in: &cancellables)
 
         // A newly ticked calendar has nothing cached yet → fetch now.
@@ -169,7 +175,7 @@ final class GoogleAPISource: EventSource {
             schedule.recordSuccess()
         }
         if anySuccess { lastSuccess = Date() }
-        hasCompletedRound = true
+        if !emails.isEmpty { hasCompletedRound = true }
         isFetching = false
 
         rebuildSnapshot()
