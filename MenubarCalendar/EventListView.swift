@@ -7,7 +7,6 @@ import SwiftUI
 /// inside a `MenuBarExtra` window because it dismisses when it loses focus.
 struct EventListView: View {
     @EnvironmentObject private var viewModel: CalendarViewModel
-    @EnvironmentObject private var google: GoogleCalendarService
     @State private var showingSettings = false
     /// The event being edited, plus its starting values; non-nil swaps the
     /// pop-over to the editor.
@@ -54,6 +53,7 @@ struct EventListView: View {
             }
         }
         .frame(width: 340)
+        .onAppear { viewModel.popoverDidOpen() }
     }
 
     private var mainContent: some View {
@@ -74,6 +74,17 @@ struct EventListView: View {
         if viewModel.accessDenied {
             AccessDeniedView()
                 .padding(16)
+        } else if viewModel.sourceStatus == .notConnected || viewModel.sourceStatus == .needsReconnect {
+            ConnectGoogleView(
+                needsReconnect: viewModel.sourceStatus == .needsReconnect,
+                onOpenSettings: { withAnimation(nav) { showingSettings = true } }
+            )
+            .padding(16)
+        } else if viewModel.sourceStatus == .loading {
+            loadingState
+        } else if viewModel.sourceStatus == .unavailable {
+            UnavailableView(onOpenSettings: { withAnimation(nav) { showingSettings = true } })
+                .padding(16)
         } else if viewModel.sections.isEmpty {
             emptyState
         } else {
@@ -91,6 +102,17 @@ struct EventListView: View {
             Text("You're all caught up.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 36)
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Loading…")
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 36)
@@ -144,13 +166,15 @@ struct EventListView: View {
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if row.isEditable {
+                                if row.canDecline {
                                     Button {
                                         withAnimation(.snappy(duration: 0.25)) { pendingDecline = row }
                                     } label: {
                                         Image(systemName: "calendar.badge.minus")
                                     }
                                     .tint(.red)
+                                }
+                                if row.isEditable {
                                     Button {
                                         beginEditing(row)
                                     } label: {
@@ -169,6 +193,8 @@ struct EventListView: View {
                                 }
                                 if row.isEditable {
                                     Button("Edit…") { beginEditing(row) }
+                                }
+                                if row.canDecline {
                                     Button("Decline…", role: .destructive) {
                                         withAnimation(.snappy(duration: 0.25)) { pendingDecline = row }
                                     }
@@ -244,7 +270,7 @@ struct EventListView: View {
     }
 
     private func declineMessage(for row: EventRow) -> String {
-        if google.isConnected {
+        if viewModel.declineNotifiesOrganizer {
             return "“\(row.title)” — you'll be marked as declined and the organizer will be notified. It will be removed from your list."
         }
         return "“\(row.title)” will be removed from your list. Connect a Google account in Settings if you want the organizer to be notified you declined."
@@ -540,6 +566,47 @@ struct EventEditScreen: View {
                 .foregroundStyle(.secondary)
             content()
         }
+    }
+}
+
+/// Shown in Google mode when no account can fetch events.
+struct ConnectGoogleView: View {
+    let needsReconnect: Bool
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(needsReconnect ? "Reconnect Google" : "Connect a Google account",
+                  systemImage: "person.crop.circle.badge.exclamationmark")
+                .font(.headline)
+            Text(needsReconnect
+                 ? "Google needs you to sign in again before events can be fetched."
+                 : "Events come straight from Google Calendar. Add an account in Settings, or switch the data source to macOS Calendar.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Settings", action: onOpenSettings)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Shown in Google mode when fetches ran but nothing could be loaded — so the
+/// pop-over doesn't claim "all caught up" while offline.
+struct UnavailableView: View {
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Can't reach Google Calendar", systemImage: "wifi.exclamationmark")
+                .font(.headline)
+            Text("Events will appear as soon as a sync succeeds. It retries automatically.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Settings", action: onOpenSettings)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

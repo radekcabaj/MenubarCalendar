@@ -41,6 +41,26 @@ xcodebuild -project MenubarCalendar.xcodeproj -scheme MenubarCalendar \
 (Xcode's own builds use `~/Library/Developer/Xcode/DerivedData`, so the GUI is
 unaffected.)
 
+## Data source
+
+Settings → **Źródło danych** picks where events come from — one or the other,
+never both:
+
+- **Google (bezpośrednio)** — the app polls the Google Calendar API itself for
+  every account connected under **Konta Google**: every 2 minutes, on wake,
+  when the network returns, and when the pop-over opens (unless the data is
+  under 15 s old). It fetches today through the next 7 days. No Calendar.app or
+  macOS Internet Accounts needed. Offline, the last fetched events stay and the
+  countdown keeps running. Rate limits / server errors back off up to 10 min.
+  Editing events isn't available in this mode; Decline is (through the account
+  that owns the event).
+- **Kalendarz macOS** — EventKit, i.e. whatever accounts macOS syncs. Fresh
+  installs start on Google; installs that had already granted calendar access
+  stay here until switched.
+
+Calendar ticks are remembered per source. In Google mode a calendar starts
+ticked if it's shown in Google Calendar's own sidebar.
+
 ## Global shortcut — open the next meeting
 
 A system-wide hot key (default **⌃⌥⌘M**, configurable in Settings) opens the
@@ -57,8 +77,9 @@ Meeting links always open in **Google Chrome**, in the profile that owns the
 event's account — so a work meeting lands in the work profile instead of
 whichever profile Chrome happened to use last:
 
-1. The event's account is taken from the "current user" attendee's address, or
-   the calendar's account / title when it's an email (e.g. `radek@tonik.com`).
+1. The event's account is taken from the Google account that owns the event (in
+   Google mode) or from the "current user" attendee's address / the calendar's
+   account or title when it's an email (in macOS Calendar mode).
 2. That email is matched to a Chrome profile — a profile pinned for the account
    in Settings wins; otherwise the email is matched as a profile's **primary**
    account, then as a **secondary** signed-in account (scanned from each

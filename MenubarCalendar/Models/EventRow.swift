@@ -11,9 +11,10 @@ struct EventRow: Identifiable {
     let endTime: String
     let calendarColor: Color
     let isAllDay: Bool
-    /// Whether the backing event lives in a writable calendar, i.e. whether the
-    /// Decline / Edit swipe actions should be offered for this row.
+    /// Whether the Edit action is offered (writable calendar, macOS Calendar source).
     let isEditable: Bool
+    /// Whether the Decline action is offered.
+    var canDecline: Bool = false
     /// Whether the event has a joinable meeting link (shows the Join affordance).
     var hasMeeting: Bool = false
     /// Whether this is the event surfaced in the menu bar (next up / current) —

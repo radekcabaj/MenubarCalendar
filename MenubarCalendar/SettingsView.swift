@@ -6,7 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var viewModel: CalendarViewModel
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var loginItem: LoginItemManager
-    @EnvironmentObject private var google: GoogleCalendarService
+    @EnvironmentObject private var google: GoogleAccountStore
     let onBack: () -> Void
 
     /// Chrome profiles read from disk when the screen appears.
@@ -20,6 +20,8 @@ struct SettingsView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    sourceSection
+                    Divider()
                     googleSection
                     Divider()
                     generalSection
@@ -50,6 +52,28 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
+    }
+
+    private var sourceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Źródło danych")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Picker("", selection: $settings.dataSource) {
+                Text("Google (bezpośrednio)").tag(DataSource.google)
+                Text("Kalendarz macOS").tag(DataSource.eventKit)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text(settings.dataSource == .google
+                 ? "Wydarzenia są pobierane z Google co 2 minuty — aplikacja Kalendarz nie jest potrzebna."
+                 : "Wydarzenia pochodzą z kont skonfigurowanych w macOS (Ustawienia systemowe → Konta internetowe).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var generalSection: some View {
@@ -99,7 +123,7 @@ struct SettingsView: View {
 
     private var googleSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Odrzucanie wydarzeń (Google)")
+            Text("Konta Google")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -108,33 +132,47 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if google.isConnected {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text(google.accountEmail ?? "Połączono z Google")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button("Odłącz") { google.disconnect() }
-                }
-                Text("Odrzucenie wydarzenia powiadomi organizatora (także dla kalendarzy udostępnionych z prawem edycji).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             } else {
+                ForEach(google.accounts) { account in
+                    HStack(spacing: 8) {
+                        Image(systemName: account.needsReconnect
+                              ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(account.needsReconnect ? .orange : .green)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(account.email)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            if let caption = accountCaption(account) {
+                                Text(caption)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        if account.needsReconnect {
+                            Button("Połącz ponownie") {
+                                Task { await google.addAccount(loginHint: account.email) }
+                            }
+                                .disabled(google.isBusy)
+                        }
+                        Button("Usuń") { google.remove(email: account.email) }
+                    }
+                }
+
                 Button {
-                    Task { await google.connect() }
+                    Task { await google.addAccount() }
                 } label: {
                     if google.isBusy {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label("Połącz konto Google…", systemImage: "person.crop.circle.badge.plus")
+                        Label("Dodaj konto Google…", systemImage: "person.crop.circle.badge.plus")
                     }
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(google.isBusy)
-                Text("Bez połączenia odrzucenie tylko usuwa wydarzenie z Twojego widoku — organizator nie zostanie powiadomiony.")
+
+                Text(settings.dataSource == .google
+                     ? "Odrzucenie wydarzenia powiadomi organizatora — przez konto, do którego należy wydarzenie."
+                     : "Odrzucenie wydarzenia przez połączone konto powiadomi organizatora (także dla kalendarzy udostępnionych z prawem edycji). Bez konta odrzucenie tylko usuwa wydarzenie z Twojego widoku.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -147,6 +185,13 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func accountCaption(_ account: GoogleAccount) -> String? {
+        if account.needsReconnect { return "Wymaga ponownego połączenia" }
+        if let error = account.lastError { return "Błąd synchronizacji: \(error)" }
+        guard let lastSync = account.lastSync else { return nil }
+        return "Ostatnia synchronizacja: \(lastSync.formatted(date: .omitted, time: .shortened))"
     }
 
     private var chromeSection: some View {
@@ -250,12 +295,21 @@ struct SettingsView: View {
             } else {
                 ForEach(viewModel.availableCalendars) { calendar in
                     Toggle(isOn: Binding(
-                        get: { settings.isSelected(calendar.id) },
+                        get: {
+                            settings.isSelected(calendar.id, in: settings.dataSource,
+                                                default: calendar.isSelectedByDefault)
+                        },
                         set: { newValue in
                             settings.setSelected(
                                 calendar.id,
                                 selected: newValue,
-                                allIDs: viewModel.availableCalendars.map(\.id)
+                                in: settings.dataSource,
+                                currentlySelected: viewModel.availableCalendars
+                                    .filter {
+                                        settings.isSelected($0.id, in: settings.dataSource,
+                                                            default: $0.isSelectedByDefault)
+                                    }
+                                    .map(\.id)
                             )
                         }
                     )) {

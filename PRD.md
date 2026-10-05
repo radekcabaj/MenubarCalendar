@@ -10,7 +10,7 @@ Przykład etykiety w pasku: `Standup… in 27m`
 
 - **Język:** Swift
 - **UI:** SwiftUI, `MenuBarExtra` (macOS 13+)
-- **Kalendarz:** EventKit (`EKEventStore`)
+- **Kalendarz:** EventKit (`EKEventStore`) lub Google Calendar API (wybór w Ustawieniach — patrz docs/superpowers/specs/2026-10-02-google-api-event-source-design.md)
 - **Minimalny target:** macOS 14 (Sonoma) — używamy `requestFullAccessToEvents()`
 - **Autostart:** `ServiceManagement` (`SMAppService.mainApp`)
 - **Trwałe ustawienia:** `UserDefaults` (wybrane kalendarze, przełącznik autostartu, przełącznik all-day)

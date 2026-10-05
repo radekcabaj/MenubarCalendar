@@ -1,10 +1,11 @@
 import AppKit
 import Combine
-import EventKit
 import SwiftUI
 
-/// Owns the `EKEventStore`, calendar access, the 30-second refresh timer, and
-/// publishes the derived state consumed by the UI (PRD §6).
+/// Turns the active `EventSource`'s snapshot into the menu-bar label and the
+/// pop-over list, runs the 30-second countdown timer, and routes the swipe
+/// actions and meeting hot key (PRD §6). Knows nothing about EventKit or the
+/// Google API — see `EventKitSource` / `GoogleAPISource`.
 @MainActor
 final class CalendarViewModel: ObservableObject {
     /// Text shown in the menu bar, e.g. `Standup… in 27m`.
@@ -13,7 +14,9 @@ final class CalendarViewModel: ObservableObject {
     @Published var sections: [DaySection] = []
     /// True when the user has denied (or not granted) calendar access.
     @Published var accessDenied: Bool = false
-    /// All event calendars, for the settings picker.
+    /// Why the active source has nothing to show, if it doesn't.
+    @Published private(set) var sourceStatus: SourceStatus = .loading
+    /// All calendars of the active source, for the settings picker.
     @Published private(set) var availableCalendars: [CalendarInfo] = []
     /// Account emails seen across the visible events and calendars, so Settings
     /// can offer a Chrome profile per account.
@@ -21,35 +24,15 @@ final class CalendarViewModel: ObservableObject {
     /// The event currently shown in the menu bar (target of the meeting hot key).
     @Published private(set) var selectedEvent: CalendarEvent?
 
-    struct CalendarInfo: Identifiable {
-        let id: String
-        let title: String
-        let color: Color
-    }
-
-    private let store = EKEventStore()
-    /// The live `EKEvent`s currently shown, keyed by `CalendarEvent.identifier`
-    /// (== `EventRow.id`), so the swipe actions can act on the exact occurrence
-    /// on screen — including a single instance of a recurring event.
-    private var eventsByRowID: [String: EKEvent] = [:]
-    /// Joinable meeting link (and its account) per row id, for tap/hover "Join".
-    private var meetingByRowID: [String: (url: URL, accountEmail: String?)] = [:]
     private let settings: AppSettings
-    /// Google Calendar connection, used to send a real "declined" RSVP that
-    /// notifies the organizer (EventKit can't). Injected so it can be shared
-    /// with the settings UI.
-    let google: GoogleCalendarService
+    /// Google accounts: shared with Settings, used by both sources to decline.
+    let google: GoogleAccountStore
+    private var source: EventSource
+    /// Joinable meeting link (and its account) per row id, for tap/hover "Join".
+    private var meetingByRowID: [String: (url: URL, accountEmail: String?, fallback: String?)] = [:]
     private let hotKey = HotKeyManager()
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
-
-    /// iCal UIDs the user has declined through the Google API this install.
-    /// A decline keeps the event on the server (marked declined) rather than
-    /// deleting it, so we hide these locally until sync catches up. Persisted so
-    /// they don't reappear after a restart.
-    private var declinedUIDs: Set<String> {
-        didSet { UserDefaults.standard.set(Array(declinedUIDs), forKey: "declinedICalUIDs") }
-    }
 
     /// A Polish-locale calendar so day/time labels match the PRD copy.
     private var calendar: Calendar {
@@ -58,23 +41,20 @@ final class CalendarViewModel: ObservableObject {
         return cal
     }
 
+    /// True when hosted by the XCTest runner — skip sources and timers.
     private static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
-    init(settings: AppSettings, google: GoogleCalendarService) {
+    init(settings: AppSettings, google: GoogleAccountStore) {
         self.settings = settings
         self.google = google
-        self.declinedUIDs = Set(UserDefaults.standard.stringArray(forKey: "declinedICalUIDs") ?? [])
+        self.source = Self.makeSource(settings.dataSource, settings: settings, google: google)
 
         // Don't touch EventKit / timers when hosted by the unit-test runner.
         guard !Self.isRunningTests else { return }
 
-        NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged, object: store, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.reload() }
-        }
+        source.onChange = { [weak self] in self?.reload() }
 
         // Reload + re-register the hot key whenever a setting changes
         // (all-day toggle, calendar selection, or the shortcut itself).
@@ -87,64 +67,50 @@ final class CalendarViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        requestAccess()
+        // Data source switched in Settings → swap the source.
+        settings.$dataSource
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] kind in
+                Task { @MainActor in self?.switchSource(to: kind) }
+            }
+            .store(in: &cancellables)
+
+        source.start()
         startTimer()
         updateHotKey()
     }
 
-    // MARK: - Access
-
-    private func diag(_ msg: String) {
-        let path = "/private/tmp/mbc_diag.log"
-        let line = "\(Date()) [pid \(ProcessInfo.processInfo.processIdentifier)] \(msg)\n"
-        if let data = line.data(using: .utf8) {
-            if let fh = FileHandle(forWritingAtPath: path) {
-                fh.seekToEndOfFile(); fh.write(data); fh.closeFile()
-            } else {
-                try? data.write(to: URL(fileURLWithPath: path))
-            }
-        }
-    }
-
-    func requestAccess() {
-        let status = EKEventStore.authorizationStatus(for: .event)
-        diag("authorizationStatus rawValue=\(status.rawValue)")
-        switch status {
-        case .fullAccess:
-            accessDenied = false
-            reload()
-        case .notDetermined:
-            diag("calling requestFullAccessToEvents…")
-            store.requestFullAccessToEvents { [weak self] granted, error in
-                self?.diag("requestFullAccessToEvents granted=\(granted) error=\(String(describing: error))")
-                Task { @MainActor in
-                    guard let self else { return }
-                    if granted {
-                        self.accessDenied = false
-                        self.reload()
-                    } else {
-                        self.showNoAccess()
-                    }
-                }
-            }
-        default: // .denied, .restricted, .writeOnly
-            diag("default branch (denied/restricted/writeOnly) → showNoAccess")
-            showNoAccess()
-        }
-    }
-
-    private func showNoAccess() {
-        accessDenied = true
-        sections = []
-        availableCalendars = []
-        accountEmails = []
-        selectedEvent = nil
-        eventsByRowID = [:]
-        meetingByRowID = [:]
-        menuBarTitle = "No access"
-    }
-
     // MARK: - Refresh
+
+    private static func makeSource(
+        _ kind: DataSource, settings: AppSettings, google: GoogleAccountStore
+    ) -> EventSource {
+        switch kind {
+        case .google: GoogleAPISource(accounts: google, settings: settings)
+        case .eventKit: EventKitSource(settings: settings, google: google)
+        }
+    }
+
+    private func switchSource(to kind: DataSource) {
+        source.onChange = nil
+        source.stop()
+        source = Self.makeSource(kind, settings: settings, google: google)
+        source.onChange = { [weak self] in self?.reload() }
+        source.start()
+        reload()
+    }
+
+    /// The pop-over just opened: fetch unless the data is only seconds old.
+    func popoverDidOpen() {
+        source.refresh(force: false)
+    }
+
+    /// Whether Decline reaches the organizer — always in Google mode (or it
+    /// fails visibly); in macOS Calendar mode only with a connected account.
+    var declineNotifiesOrganizer: Bool {
+        settings.dataSource == .google || google.hasUsableAccount
+    }
 
     private func startTimer() {
         timer?.invalidate()
@@ -154,79 +120,31 @@ final class CalendarViewModel: ObservableObject {
         }
     }
 
-    /// Re-query EventKit and recompute the label + list.
+    /// Recompute the label + list from the active source's snapshot.
     func reload() {
-        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
-            showNoAccess()
+        let snapshot = source.snapshot
+        sourceStatus = snapshot.status
+        accessDenied = snapshot.status == .noAccess
+        availableCalendars = snapshot.calendars
+        accountEmails = snapshot.accountEmails
+        guard snapshot.status == .ok else {
+            showEmpty(for: snapshot.status)
             return
         }
-        accessDenied = false
 
         let cal = calendar
         let now = Date()
-        guard let end = cal.date(byAdding: .day, value: 7, to: now) else { return }
-
-        let allCalendars = store.calendars(for: .event)
-        availableCalendars = allCalendars.map {
-            CalendarInfo(id: $0.calendarIdentifier, title: $0.title, color: color(for: $0))
-        }
-        // Seed the account list from the calendars themselves, so an account
-        // with no upcoming meeting is still configurable in Settings.
-        var accounts = Set<String>()
-        for calendar in allCalendars {
-            for candidate in [calendar.source.title, calendar.title] where candidate.contains("@") {
-                accounts.insert(candidate)
-            }
-        }
-
-        let selected = allCalendars.filter { settings.isSelected($0.calendarIdentifier) }
-        // Empty means the user deselected everything → show nothing (don't fall
-        // back to querying all calendars).
-        guard !selected.isEmpty else {
-            sections = []
-            accountEmails = accounts.sorted()
-            selectedEvent = nil
-            eventsByRowID = [:]
-            meetingByRowID = [:]
-            menuBarTitle = "No events"
-            return
-        }
-
-        let predicate = store.predicateForEvents(
-            withStart: cal.startOfDay(for: now), end: end, calendars: selected
-        )
-        var byRowID: [String: EKEvent] = [:]
-        var meetingMap: [String: (url: URL, accountEmail: String?)] = [:]
-        let events = store.events(matching: predicate)
-            .filter { !isDeclined($0) }
-            .map { ek -> CalendarEvent in
-            let id = "\(ek.calendarItemIdentifier)@\(ek.startDate.timeIntervalSince1970)"
-            byRowID[id] = ek
-            let event = CalendarEvent(
-                identifier: id,
-                title: ek.title ?? "",
-                startDate: ek.startDate,
-                endDate: ek.endDate,
-                isAllDay: ek.isAllDay,
-                calendarIdentifier: ek.calendar.calendarIdentifier,
-                calendarTitle: ek.calendar.title,
-                url: ek.url,
-                location: ek.location,
-                notes: ek.notes,
-                accountEmail: accountEmail(for: ek)
-            )
-            if let email = event.accountEmail { accounts.insert(email) }
+        let events = snapshot.events
+        var meetingMap: [String: (url: URL, accountEmail: String?, fallback: String?)] = [:]
+        for event in events {
             if let url = EventLinkExtractor.meetingURL(for: event) {
-                meetingMap[id] = (url, event.accountEmail)
+                meetingMap[event.identifier] = (url, event.accountEmail, event.fallbackAccountEmail)
             }
-            return event
         }
-        accountEmails = accounts.sorted()
-        eventsByRowID = byRowID
         meetingByRowID = meetingMap
 
         let colorByCalendar = Dictionary(
-            allCalendars.map { ($0.calendarIdentifier, color(for: $0)) },
+            snapshot.calendars.map { ($0.id, $0.color) },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -250,7 +168,8 @@ final class CalendarViewModel: ObservableObject {
                         endTime: EventLogic.timeString(for: event.endDate, calendar: cal),
                         calendarColor: colorByCalendar[event.calendarIdentifier] ?? .gray,
                         isAllDay: event.isAllDay,
-                        isEditable: byRowID[event.identifier]?.calendar.allowsContentModifications ?? false,
+                        isEditable: event.isEditable,
+                        canDecline: event.canDecline,
                         hasMeeting: meetingMap[event.identifier] != nil,
                         isNext: event.identifier == selection?.identifier,
                         isInProgress: EventLogic.isInProgress(event, now: now)
@@ -264,11 +183,18 @@ final class CalendarViewModel: ObservableObject {
         )
     }
 
-    private func color(for calendar: EKCalendar) -> Color {
-        if let cg = calendar.cgColor {
-            return Color(cgColor: cg)
+    private func showEmpty(for status: SourceStatus) {
+        sections = []
+        selectedEvent = nil
+        meetingByRowID = [:]
+        switch status {
+        case .noAccess: menuBarTitle = "No access"
+        case .notConnected: menuBarTitle = "Connect Google"
+        case .needsReconnect: menuBarTitle = "Reconnect Google"
+        case .nothingSelected: menuBarTitle = "No events"
+        case .unavailable: menuBarTitle = "Offline"
+        case .loading, .ok: menuBarTitle = "…"
         }
-        return .gray
     }
 
     // MARK: - Meeting hot key
@@ -293,14 +219,17 @@ final class CalendarViewModel: ObservableObject {
         hotKey.unregister()
     }
 
-    /// Open the meeting link for the menu-bar event; fall back to Calendar.app.
+    /// Open the meeting link for the menu-bar event; without one, the event's
+    /// web page (Google mode), else Calendar.app.
     func openCurrentMeeting() {
         guard let event = selectedEvent else {
             NSSound.beep()
             return
         }
         if let url = EventLinkExtractor.meetingURL(for: event) {
-            openMeetingURL(url, accountEmail: event.accountEmail)
+            openMeetingURL(url, accountEmail: event.accountEmail, fallback: event.fallbackAccountEmail)
+        } else if let webURL = event.webURL {
+            openMeetingURL(webURL, accountEmail: event.accountEmail, fallback: event.fallbackAccountEmail)
         } else if let calendar = URL(string: "ical://") {
             NSWorkspace.shared.open(calendar)
         }
@@ -309,7 +238,7 @@ final class CalendarViewModel: ObservableObject {
     /// Open the meeting link for a specific list row (tap / hover "Join").
     func openMeeting(rowID: String) {
         guard let meeting = meetingByRowID[rowID] else { NSSound.beep(); return }
-        openMeetingURL(meeting.url, accountEmail: meeting.accountEmail)
+        openMeetingURL(meeting.url, accountEmail: meeting.accountEmail, fallback: meeting.fallback)
     }
 
     /// Open in Chrome, pinned to the profile that owns the event's account, so a
@@ -317,139 +246,69 @@ final class CalendarViewModel: ObservableObject {
     /// Chrome happened to use last. Google links additionally get
     /// `authuser=<email>` to pick the right identity *inside* that profile.
     /// Falls back to the default browser only when Chrome can't be launched.
-    private func openMeetingURL(_ url: URL, accountEmail: String?) {
-        let finalURL = accountEmail.map { EventLinkExtractor.accountURL(url, authuserEmail: $0) } ?? url
-        let directory = accountEmail.flatMap {
-            ChromeProfileResolver.profileDirectory(
-                forEmail: $0, overrides: settings.chromeProfileOverrides
-            )
+    private func openMeetingURL(_ url: URL, accountEmail: String?, fallback: String?) {
+        let overrides = settings.chromeProfileOverrides
+        let email = Self.routingEmail(
+            owner: accountEmail, fallback: fallback,
+            connected: google.accounts.map(\.email),
+            hasProfile: { ChromeProfileResolver.profileDirectory(forEmail: $0, overrides: overrides) != nil }
+        )
+        let finalURL = email.map { EventLinkExtractor.accountURL(url, authuserEmail: $0) } ?? url
+        let directory = email.flatMap {
+            ChromeProfileResolver.profileDirectory(forEmail: $0, overrides: overrides)
         }
         if ChromeProfileResolver.open(finalURL, profileDirectory: directory) { return }
         NSWorkspace.shared.open(finalURL)
     }
 
+    /// The email that picks the Chrome profile and `authuser=`. The owner, when
+    /// it is one of the user's identities (a connected account or one with a
+    /// Chrome profile); otherwise the account the event was fetched through —
+    /// a colleague's shared calendar has an owner with no profile or sign-in.
+    nonisolated static func routingEmail(
+        owner: String?, fallback: String?, connected: [String], hasProfile: (String) -> Bool
+    ) -> String? {
+        guard let owner else { return fallback }
+        let isConnected = connected.contains { $0.caseInsensitiveCompare(owner) == .orderedSame }
+        if isConnected || hasProfile(owner) { return owner }
+        return fallback ?? owner
+    }
+
     // MARK: - Swipe actions (decline / edit)
 
-    /// Decline attendance. When a Google account is connected and the event has
-    /// an iCal UID, this sends a real "declined" RSVP through the Google API
-    /// (`sendUpdates=all`) so the organizer is notified — including events on
-    /// calendars shared into the account with edit access. The event is then
-    /// hidden locally. If Google isn't connected, or the RSVP can't be sent
-    /// (read-only calendar, not an attendee), it falls back to removing the
-    /// local copy via EventKit — which does *not* reliably notify the organizer.
+    /// Decline attendance through the active source (a real RSVP where
+    /// possible). On an API failure nothing is hidden and the error is shown.
     func declineEvent(rowID: String) {
-        guard let event = eventsByRowID[rowID] else { NSSound.beep(); return }
-        let uid = event.calendarItemExternalIdentifier
-
-        if google.isConnected, let uid, !uid.isEmpty {
-            Task { @MainActor in
-                do {
-                    if try await google.declineEvent(iCalUID: uid) {
-                        declinedUIDs.insert(uid)
-                        eventsByRowID[rowID] = nil
-                        reload()
-                        return
-                    }
-                    // Cleanly found no writable copy / we're not an attendee:
-                    // a local remove is the best we can do here.
-                    diag("google decline: event not found on a writable calendar, falling back")
-                    localRemove(event, rowID: rowID)
-                } catch {
-                    // A real API failure (e.g. a token missing the calendar
-                    // scope). Do NOT locally delete — that would hide the event
-                    // while leaving the user shown as attending on Google.
-                    diag("google decline failed for \(rowID): \(error)")
-                    google.reportDeclineFailure(error)
+        Task { @MainActor in
+            do {
+                switch try await source.decline(eventID: rowID) {
+                case .declined, .removedLocally:
+                    reload()
+                case .notApplicable:
                     NSSound.beep()
                 }
+            } catch {
+                Diagnostics.log("decline failed for \(rowID): \(error)")
+                google.reportDeclineFailure(error)
+                NSSound.beep()
             }
-        } else {
-            localRemove(event, rowID: rowID)
         }
     }
 
-    /// EventKit fallback: remove the local copy of the event.
-    private func localRemove(_ event: EKEvent, rowID: String) {
-        do {
-            try store.remove(event, span: .thisEvent, commit: true)
-            eventsByRowID[rowID] = nil
-            reload()
-        } catch {
-            diag("remove failed for \(rowID): \(error)")
-            NSSound.beep()
-        }
-    }
-
-    /// Whether the current user (or a calendar owned/managed by them) has
-    /// declined this event, or we declined it via the Google API and are hiding
-    /// it until sync catches up.
-    private func isDeclined(_ event: EKEvent) -> Bool {
-        if let uid = event.calendarItemExternalIdentifier, declinedUIDs.contains(uid) {
-            return true
-        }
-        return event.attendees?.contains {
-            $0.isCurrentUser && $0.participantStatus == .declined
-        } ?? false
-    }
-
-    /// A snapshot of the editable fields for the event backing `rowID`, or `nil`
-    /// if it's gone or lives in a read-only calendar.
+    /// Editable fields for the row's event; only the macOS Calendar source
+    /// supports editing.
     func editDraft(rowID: String) -> EventEditDraft? {
-        guard let event = eventsByRowID[rowID],
-              event.calendar.allowsContentModifications else { return nil }
-        return EventEditDraft(
-            title: event.title ?? "",
-            isAllDay: event.isAllDay,
-            startDate: event.startDate,
-            endDate: event.endDate,
-            location: event.location ?? "",
-            notes: event.notes ?? "",
-            hasAttendees: !(event.attendees ?? []).isEmpty
-        )
+        (source as? EventKitSource)?.editDraft(eventID: rowID)
     }
 
-    /// Write an edited draft back to the event and save it. As with a delete, a
-    /// synced account propagates the change and notifies guests on the next sync.
     @discardableResult
     func saveEdit(_ draft: EventEditDraft, rowID: String) -> Bool {
-        guard let event = eventsByRowID[rowID],
-              event.calendar.allowsContentModifications else { NSSound.beep(); return false }
-        event.title = draft.title
-        event.isAllDay = draft.isAllDay
-        event.startDate = draft.startDate
-        event.endDate = draft.endDate
-        event.location = draft.location.isEmpty ? nil : draft.location
-        event.notes = draft.notes.isEmpty ? nil : draft.notes
-        do {
-            try store.save(event, span: .thisEvent, commit: true)
-            reload()
-            return true
-        } catch {
-            diag("save failed for \(rowID): \(error)")
+        guard let eventKit = source as? EventKitSource,
+              eventKit.saveEdit(draft, eventID: rowID) else {
             NSSound.beep()
             return false
         }
-    }
-
-    /// Best guess at which account an event belongs to: the "current user"
-    /// attendee's address, else the calendar's account / title if it's an email.
-    private func accountEmail(for event: EKEvent) -> String? {
-        if let attendees = event.attendees {
-            for participant in attendees where participant.isCurrentUser {
-                if let email = Self.email(fromParticipantURL: participant.url) {
-                    return email
-                }
-            }
-        }
-        let sourceTitle = event.calendar.source.title
-        if sourceTitle.contains("@") { return sourceTitle }
-        if event.calendar.title.contains("@") { return event.calendar.title }
-        return nil
-    }
-
-    static func email(fromParticipantURL url: URL) -> String? {
-        guard url.scheme?.lowercased() == "mailto" else { return nil }
-        let email = url.absoluteString.dropFirst("mailto:".count)
-        return email.isEmpty ? nil : String(email)
+        reload()
+        return true
     }
 }
