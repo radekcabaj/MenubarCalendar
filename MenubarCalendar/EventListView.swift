@@ -467,8 +467,8 @@ struct StatusDot: View {
 }
 
 /// Inline event editor shown in place of the list (same pattern as Settings).
-/// Edits are saved through EventKit by the caller; on synced accounts guests
-/// are notified as part of the account's normal sync.
+/// Edits are saved by the caller through the active source — EventKit (guests
+/// notified on the account's next sync) or the Google API (notified at once).
 struct EventEditScreen: View {
     @State var draft: EventEditDraft
     let onCancel: () -> Void

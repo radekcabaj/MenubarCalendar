@@ -295,20 +295,26 @@ final class CalendarViewModel: ObservableObject {
         }
     }
 
-    /// Editable fields for the row's event; only the macOS Calendar source
-    /// supports editing.
+    /// Editable fields for the row's event, or `nil` if it can't be edited.
     func editDraft(rowID: String) -> EventEditDraft? {
-        (source as? EventKitSource)?.editDraft(eventID: rowID)
+        source.editDraft(eventID: rowID)
     }
 
-    @discardableResult
-    func saveEdit(_ draft: EventEditDraft, rowID: String) -> Bool {
-        guard let eventKit = source as? EventKitSource,
-              eventKit.saveEdit(draft, eventID: rowID) else {
-            NSSound.beep()
-            return false
+    /// Save through the active source. On an API failure the event is left as
+    /// it was and the error is shown.
+    func saveEdit(_ draft: EventEditDraft, rowID: String) {
+        Task { @MainActor in
+            do {
+                if try await source.saveEdit(draft, eventID: rowID) {
+                    reload()
+                } else {
+                    NSSound.beep()
+                }
+            } catch {
+                Diagnostics.log("edit failed for \(rowID): \(error)")
+                google.reportEditFailure(error)
+                NSSound.beep()
+            }
         }
-        reload()
-        return true
     }
 }

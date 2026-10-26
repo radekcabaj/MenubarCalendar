@@ -62,6 +62,10 @@ protocol EventSource: AnyObject {
     func refresh(force: Bool)
     /// Decline the event whose `CalendarEvent.identifier` is `eventID`.
     func decline(eventID: String) async throws -> DeclineOutcome
+    /// The editor's starting values, or `nil` if the event can't be edited.
+    func editDraft(eventID: String) -> EventEditDraft?
+    /// Save an edited draft; `false` if the event is gone or read-only.
+    func saveEdit(_ draft: EventEditDraft, eventID: String) async throws -> Bool
 }
 
 /// Appends to `/private/tmp/mbc_diag.log` — the app's existing debug trail.

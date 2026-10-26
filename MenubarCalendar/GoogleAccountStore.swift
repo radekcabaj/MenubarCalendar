@@ -179,6 +179,15 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
             || body.contains("autherror")
     }
 
+    /// Surface a failed edit; the event is left as Google has it.
+    func reportEditFailure(_ error: Error) {
+        if Self.isAuthFailure(error) {
+            errorMessage = "Google needs to be reconnected to edit events (its permissions changed). Open Settings and connect again."
+        } else {
+            errorMessage = "Couldn't save the edit to Google: \(error.localizedDescription)"
+        }
+    }
+
     /// Surface a failed decline. The account was already marked for reconnect
     /// if the failure was about auth. Callers must NOT hide the event on these,
     /// or the user is left hidden-but-still-attending.
@@ -244,6 +253,19 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         attendees[selfIndex]["responseStatus"] = "declined"
         try await patch(calendarID: calendarID, eventID: eventID, body: ["attendees": attendees], token: token)
         return true
+    }
+
+    // MARK: - Editing
+
+    /// Patch one occurrence with `body`, notifying guests. Returns the updated
+    /// event as Google stored it.
+    func patchInstance(
+        calendarID: String, eventID: String, body: [String: Any], as email: String
+    ) async throws -> [String: Any] {
+        try await markingAuthFailures(of: email) {
+            let token = try await validAccessToken(for: email)
+            return try await patch(calendarID: calendarID, eventID: eventID, body: body, token: token)
+        }
     }
 
     private func markingAuthFailures<T>(of email: String, _ body: () async throws -> T) async throws -> T {
@@ -396,7 +418,8 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         URL(string: "https://www.googleapis.com/calendar/v3/calendars/\(pathEscaped(calendarID))/events/\(pathEscaped(eventID))")!
     }
 
-    private func patch(calendarID: String, eventID: String, body: [String: Any], token: String) async throws {
+    @discardableResult
+    private func patch(calendarID: String, eventID: String, body: [String: Any], token: String) async throws -> [String: Any] {
         var components = URLComponents(url: eventURL(calendarID: calendarID, eventID: eventID),
                                        resolvingAgainstBaseURL: false)!
         components.queryItems = [.init(name: "sendUpdates", value: "all")]
@@ -405,7 +428,7 @@ final class GoogleAccountStore: NSObject, ObservableObject, ASWebAuthenticationP
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        _ = try await send(request)
+        return try await send(request)
     }
 
     private func fetchPrimaryEmail(accessToken: String) async throws -> String? {

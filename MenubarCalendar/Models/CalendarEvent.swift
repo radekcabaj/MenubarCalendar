@@ -32,7 +32,7 @@ struct CalendarEvent: Equatable {
     /// The event's page in the calendar's web UI (Google's `htmlLink`) — the
     /// hot key's fallback when there is no meeting link.
     var webURL: URL? = nil
-    /// Whether the edit screen may write this event (macOS Calendar source only).
+    /// Whether the edit screen may write this event.
     var isEditable: Bool = false
     /// Whether Decline applies: a writable calendar the user is invited on.
     var canDecline: Bool = false

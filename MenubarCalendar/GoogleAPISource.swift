@@ -306,6 +306,33 @@ final class GoogleAPISource: EventSource {
         return .declined
     }
 
+    // MARK: - Edit
+
+    func editDraft(eventID: String) -> EventEditDraft? {
+        guard let item = eventsByID[eventID], item.event.isEditable else { return nil }
+        return GoogleEventMapper.editDraft(for: item)
+    }
+
+    /// Patch only the changed fields through the account that fetched the
+    /// event (guests are notified), then show Google's copy right away and
+    /// refetch so copies seen through other accounts catch up.
+    func saveEdit(_ draft: EventEditDraft, eventID: String) async throws -> Bool {
+        guard let item = eventsByID[eventID], item.event.isEditable else { return false }
+        let body = GoogleEventMapper.patchBody(from: GoogleEventMapper.editDraft(for: item), to: draft)
+        if body.isEmpty { return true }
+        let json = try await accounts.patchInstance(
+            calendarID: item.calendarID, eventID: item.eventID, body: body, as: item.fetchedVia
+        )
+        if let calendar = results[item.fetchedVia]?.calendars.first(where: { $0.calendarID == item.calendarID }),
+           let updated = GoogleEventMapper.event(from: json, calendar: calendar),
+           let index = results[item.fetchedVia]?.events.firstIndex(where: { $0.event.identifier == eventID }) {
+            results[item.fetchedVia]?.events[index] = updated
+            rebuildSnapshot()
+        }
+        refresh(force: true)
+        return true
+    }
+
     // MARK: - Requests
 
     private static let maxPages = 20
