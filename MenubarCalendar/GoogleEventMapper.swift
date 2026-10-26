@@ -30,6 +30,8 @@ struct MappedGoogleEvent: Equatable {
     let fetchedVia: String
     /// The account is listed as an attendee (`self == true`).
     let hasSelfAttendee: Bool
+    /// Anyone is invited — an edit then notifies them.
+    var hasAttendees = false
 }
 
 /// Pure JSON → model mapping for the Google Calendar API, kept free of
@@ -86,13 +88,81 @@ enum GoogleEventMapper {
             fallbackAccountEmail: calendar.accountEmail,
             iCalUID: json["iCalUID"] as? String,
             webURL: (json["htmlLink"] as? String).flatMap(URL.init(string:)),
-            isEditable: false,
+            isEditable: isEditable(json, calendar: calendar),
             canDecline: calendar.isWritable && me != nil
         )
         return MappedGoogleEvent(
             event: event, calendarID: calendar.calendarID, eventID: eventID,
-            fetchedVia: calendar.accountEmail, hasSelfAttendee: me != nil
+            fetchedVia: calendar.accountEmail, hasSelfAttendee: me != nil,
+            hasAttendees: !attendees.isEmpty
         )
+    }
+
+    /// Whether this copy can be changed for everyone: a writable calendar that
+    /// organizes the event (or guests may modify it), and an ordinary event —
+    /// not a birthday, out-of-office or working-location entry, nor locked.
+    private static func isEditable(_ json: [String: Any], calendar: GoogleCalendarEntry) -> Bool {
+        let organizer = json["organizer"] as? [String: Any]
+        let isOrganizer = (organizer?["self"] as? Bool) == true
+        let guestsCanModify = (json["guestsCanModify"] as? Bool) == true
+        let eventType = json["eventType"] as? String ?? "default"
+        return calendar.isWritable
+            && (isOrganizer || guestsCanModify)
+            && eventType == "default"
+            && (json["locked"] as? Bool) != true
+    }
+
+    // MARK: - Editing
+
+    /// The editor's starting values. Google's all-day end is the exclusive next
+    /// day; the editor shows the last day itself, as Calendar.app does.
+    static func editDraft(for item: MappedGoogleEvent, calendar: Calendar = .current) -> EventEditDraft {
+        let event = item.event
+        let end = event.isAllDay
+            ? calendar.date(byAdding: .day, value: -1, to: event.endDate) ?? event.endDate
+            : event.endDate
+        return EventEditDraft(
+            title: event.title,
+            isAllDay: event.isAllDay,
+            startDate: event.startDate,
+            endDate: max(end, event.startDate),
+            location: event.location ?? "",
+            notes: event.notes ?? "",
+            hasAttendees: item.hasAttendees
+        )
+    }
+
+    /// An `events.patch` body holding only what changed, so untouched fields
+    /// (e.g. an HTML description) are never rewritten. Empty when nothing did.
+    static func patchBody(
+        from original: EventEditDraft, to edited: EventEditDraft, calendar: Calendar = .current
+    ) -> [String: Any] {
+        var body: [String: Any] = [:]
+        if edited.title != original.title { body["summary"] = edited.title }
+        if edited.location != original.location { body["location"] = edited.location }
+        if edited.notes != original.notes { body["description"] = edited.notes }
+        if edited.isAllDay != original.isAllDay
+            || edited.startDate != original.startDate
+            || edited.endDate != original.endDate {
+            // Patch merges nested objects, so the other form is nulled out
+            // explicitly when switching between all-day and timed.
+            if edited.isAllDay {
+                let lastDay = calendar.startOfDay(for: edited.endDate)
+                let end = calendar.date(byAdding: .day, value: 1, to: lastDay) ?? lastDay
+                body["start"] = ["date": day(edited.startDate, calendar: calendar), "dateTime": NSNull()]
+                body["end"] = ["date": day(end, calendar: calendar), "dateTime": NSNull()]
+            } else {
+                body["start"] = ["dateTime": rfc3339(edited.startDate), "date": NSNull()]
+                body["end"] = ["dateTime": rfc3339(edited.endDate), "date": NSNull()]
+            }
+        }
+        return body
+    }
+
+    /// `yyyy-MM-dd` in `calendar`'s time zone.
+    private static func day(_ date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
     /// The account an event belongs to: the `self` attendee (the owner of the

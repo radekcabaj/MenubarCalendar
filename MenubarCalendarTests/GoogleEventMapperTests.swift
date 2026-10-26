@@ -311,4 +311,97 @@ final class GoogleEventMapperTests: XCTestCase {
     func testRFC3339IsUTC() {
         XCTAssertEqual(GoogleEventMapper.rfc3339(date(2026, 10, 5, 10)), "2026-10-05T08:00:00Z")
     }
+
+    // MARK: Editing
+
+    private var warsawCalendar: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = warsaw
+        return cal
+    }
+
+    private let organizer: [String: Any] = ["organizer": ["email": "a@x.com", "self": true]]
+
+    func testOrganizerOnWritableCalendarCanEdit() throws {
+        XCTAssertTrue(try XCTUnwrap(map(timed(organizer))).event.isEditable)
+    }
+
+    func testGuestCanEditOnlyWhenGuestsCanModify() throws {
+        let guest: [String: Any] = ["organizer": ["email": "boss@x.com"]]
+        XCTAssertFalse(try XCTUnwrap(map(timed(guest))).event.isEditable)
+        let allowed = guest.merging(["guestsCanModify": true]) { _, new in new }
+        XCTAssertTrue(try XCTUnwrap(map(timed(allowed))).event.isEditable)
+    }
+
+    func testReadOnlyCalendarCannotEdit() throws {
+        let readOnly = GoogleCalendarEntry(
+            key: "a@x.com/ro", accountEmail: "a@x.com", calendarID: "ro",
+            title: "ro", colorHex: nil, isWritable: false, isSelectedInGoogle: true
+        )
+        XCTAssertFalse(try XCTUnwrap(map(timed(organizer), calendar: readOnly)).event.isEditable)
+    }
+
+    func testSpecialEventTypesAndLockedEventsCannotEdit() throws {
+        let ooo = organizer.merging(["eventType": "outOfOffice"]) { _, new in new }
+        XCTAssertFalse(try XCTUnwrap(map(timed(ooo))).event.isEditable)
+        let locked = organizer.merging(["locked": true]) { _, new in new }
+        XCTAssertFalse(try XCTUnwrap(map(timed(locked))).event.isEditable)
+    }
+
+    func testAllDayDraftShowsTheLastDayInclusive() throws {
+        let mapped = try XCTUnwrap(map(timed([
+            "start": ["date": "2026-10-05"], "end": ["date": "2026-10-07"],
+        ])))
+        let draft = GoogleEventMapper.editDraft(for: mapped, calendar: warsawCalendar)
+        XCTAssertTrue(draft.isAllDay)
+        XCTAssertEqual(draft.startDate, date(2026, 10, 5))
+        XCTAssertEqual(draft.endDate, date(2026, 10, 6))
+    }
+
+    func testDraftReportsAttendees() throws {
+        let mapped = try XCTUnwrap(map(timed(["attendees": [["email": "b@x.com"]]])))
+        XCTAssertTrue(GoogleEventMapper.editDraft(for: mapped).hasAttendees)
+    }
+
+    private func draft(allDay: Bool = false, start: Date? = nil, end: Date? = nil) -> EventEditDraft {
+        EventEditDraft(
+            title: "Standup", isAllDay: allDay,
+            startDate: start ?? date(2026, 10, 5, 10), endDate: end ?? date(2026, 10, 5, 10, 15),
+            location: "", notes: "<b>agenda</b>", hasAttendees: true
+        )
+    }
+
+    func testPatchBodyHoldsOnlyChangedFields() {
+        let original = draft()
+        XCTAssertTrue(GoogleEventMapper.patchBody(from: original, to: original).isEmpty)
+
+        var edited = original
+        edited.title = "Standup (moved)"
+        edited.location = "Room 2"
+        let body = GoogleEventMapper.patchBody(from: original, to: edited)
+        XCTAssertEqual(Set(body.keys), ["summary", "location"])
+        XCTAssertEqual(body["summary"] as? String, "Standup (moved)")
+    }
+
+    func testPatchBodyTimedTimesClearDate() {
+        var edited = draft()
+        edited.startDate = date(2026, 10, 5, 11)
+        let body = GoogleEventMapper.patchBody(from: draft(), to: edited)
+        let start = body["start"] as? [String: Any]
+        XCTAssertEqual(start?["dateTime"] as? String, "2026-10-05T09:00:00Z")
+        XCTAssertTrue(start?["date"] is NSNull)
+        XCTAssertEqual((body["end"] as? [String: Any])?["dateTime"] as? String, "2026-10-05T08:15:00Z")
+    }
+
+    func testPatchBodyAllDayEndIsExclusive() {
+        var edited = draft()
+        edited.isAllDay = true
+        edited.startDate = date(2026, 10, 5)
+        edited.endDate = date(2026, 10, 6)
+        let body = GoogleEventMapper.patchBody(from: draft(), to: edited, calendar: warsawCalendar)
+        let start = body["start"] as? [String: Any]
+        XCTAssertEqual(start?["date"] as? String, "2026-10-05")
+        XCTAssertTrue(start?["dateTime"] is NSNull)
+        XCTAssertEqual((body["end"] as? [String: Any])?["date"] as? String, "2026-10-07")
+    }
 }
